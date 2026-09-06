@@ -35,3 +35,44 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Local AI/tooling metadata ###
+/AGENTS.md
+/agents.md
+/CLAUDE.md
+/claude.md
+/.claude/
+/.codegraph/
+/.codex/
+/.superpower/
+/.superpowers/
+
+### Environment secrets ###
+.env
+.env.*
+!.env.example
+!.env.sample
+
+### Local Spring configuration ###
+/src/main/resources/application-local.properties
+/src/main/resources/application-local.yml
+/src/main/resources/application-local.yaml
+
+### Logs ###
+*.log
+/logs/
+
+### Temporary files and caches ###
+/.cache/
+/tmp/
+/temp/
+*.tmp
+
+### OS metadata ###
+.DS_Store
+Thumbs.db
+
+### JVM diagnostics ###
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
