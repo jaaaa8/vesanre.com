@@ -18,6 +18,9 @@ import lombok.Setter;
 import java.io.Serializable;
 import java.util.UUID;
 
+/**
+ * Liên kết môn thể thao được sân hỗ trợ.
+ */
 @Entity
 @Table(name = "court_sports", schema = "sporthub")
 @Getter
@@ -26,19 +29,23 @@ import java.util.UUID;
 public class CourtSport {
 
     @EmbeddedId
+    // Mã định danh bản ghi.
     private CourtSportId id = new CourtSportId();
 
     @MapsId("courtId")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "court_id", nullable = false)
+    // Sân liên quan.
     private Court court;
 
     @MapsId("sportId")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "sport_id", nullable = false)
+    // Môn thể thao được liên kết.
     private Sport sport;
 
     @Column(name = "is_primary", nullable = false)
+    // Cho biết đây là môn thể thao chính.
     private Boolean isPrimary = Boolean.FALSE;
 
     @Embeddable
@@ -49,9 +56,11 @@ public class CourtSport {
     @EqualsAndHashCode
     public static class CourtSportId implements Serializable {
         @Column(name = "court_id", nullable = false)
+        // Mã sân trong khóa ghép.
         private UUID courtId;
 
         @Column(name = "sport_id", nullable = false)
+        // Mã môn thể thao trong khóa ghép.
         private UUID sportId;
     }
 }

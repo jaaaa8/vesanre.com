@@ -22,6 +22,9 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Hồ sơ xác minh nhà cung cấp hoặc cửa hàng.
+ */
 @Entity
 @Table(name = "provider_verifications", schema = "sporthub")
 @Getter
@@ -32,39 +35,49 @@ public class ProviderVerification {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false)
+    // Mã định danh bản ghi.
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "shop_id", nullable = false)
+    // Cửa hàng liên quan.
     private Shop shop;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "submitted_by", nullable = false)
+    // Người dùng gửi hồ sơ xác minh.
     private UserAccount submittedBy;
 
     @Column(name = "documents", nullable = false, columnDefinition = "jsonb")
     @ColumnTransformer(write = "?::jsonb")
+    // Tài liệu xác minh, dạng JSON.
     private String documents;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
+    // Trạng thái hiện tại.
     private VerificationStatus status = VerificationStatus.PENDING;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "reviewed_by")
+    // Quản trị viên xét duyệt.
     private UserAccount reviewedBy;
 
     @Column(name = "reviewed_at", columnDefinition = "timestamp with time zone")
+    // Thời điểm hoàn tất xét duyệt.
     private Instant reviewedAt;
 
     @Column(name = "rejection_reason", columnDefinition = "text")
+    // Lý do từ chối xác minh.
     private String rejectionReason;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false, columnDefinition = "timestamp with time zone")
+    // Thời điểm tạo bản ghi.
     private Instant createdAt;
 
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false, columnDefinition = "timestamp with time zone")
+    // Thời điểm cập nhật gần nhất.
     private Instant updatedAt;
 }

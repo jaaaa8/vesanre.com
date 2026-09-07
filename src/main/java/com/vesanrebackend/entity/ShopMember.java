@@ -23,6 +23,9 @@ import java.io.Serializable;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Thành viên vận hành cửa hàng.
+ */
 @Entity
 @Table(name = "shop_members", schema = "sporthub")
 @Getter
@@ -31,27 +34,33 @@ import java.util.UUID;
 public class ShopMember {
 
     @EmbeddedId
+    // Mã định danh bản ghi.
     private ShopMemberId id = new ShopMemberId();
 
     @MapsId("shopId")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "shop_id", nullable = false)
+    // Cửa hàng liên quan.
     private Shop shop;
 
     @MapsId("userId")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
+    // Người dùng liên quan.
     private UserAccount user;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "member_role", nullable = false, length = 20)
+    // Vai trò thành viên trong cửa hàng.
     private ShopMemberRole memberRole;
 
     @CreationTimestamp
     @Column(name = "joined_at", nullable = false, updatable = false, columnDefinition = "timestamp with time zone")
+    // Thời điểm tham gia cửa hàng.
     private Instant joinedAt;
 
     @Column(name = "deactivated_at", columnDefinition = "timestamp with time zone")
+    // Thời điểm thành viên bị vô hiệu hóa.
     private Instant deactivatedAt;
 
     @Embeddable
@@ -62,9 +71,11 @@ public class ShopMember {
     @EqualsAndHashCode
     public static class ShopMemberId implements Serializable {
         @Column(name = "shop_id", nullable = false)
+        // Mã cửa hàng trong khóa ghép.
         private UUID shopId;
 
         @Column(name = "user_id", nullable = false)
+        // Mã người dùng trong khóa ghép.
         private UUID userId;
     }
 }

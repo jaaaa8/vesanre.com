@@ -18,6 +18,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Tiện ích áp dụng cho địa điểm hoặc sân.
+ */
 @Entity
 @Table(name = "amenities", schema = "sporthub")
 @Getter
@@ -28,24 +31,31 @@ public class Amenity {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false)
+    // Mã định danh bản ghi.
     private UUID id;
 
     @Column(name = "code", nullable = false, length = 50, unique = true)
+    // Mã nghiệp vụ duy nhất.
     private String code;
 
     @Column(name = "name", nullable = false, length = 100, unique = true)
+    // Tên hiển thị.
     private String name;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "allowed_scope", nullable = false, length = 10)
+    // Phạm vi sử dụng tiện ích.
     private AmenityScope allowedScope;
 
     @Column(name = "is_active", nullable = false)
+    // Cho biết bản ghi đang hoạt động.
     private Boolean isActive = Boolean.TRUE;
 
     @OneToMany(mappedBy = "amenity")
+    // Danh sách địa điểm liên quan.
     private List<VenueAmenity> venues = new ArrayList<>();
 
     @OneToMany(mappedBy = "amenity")
+    // Danh sách sân liên quan.
     private List<CourtAmenity> courts = new ArrayList<>();
 }

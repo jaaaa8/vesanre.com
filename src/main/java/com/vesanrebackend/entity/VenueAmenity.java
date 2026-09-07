@@ -18,6 +18,9 @@ import lombok.Setter;
 import java.io.Serializable;
 import java.util.UUID;
 
+/**
+ * Liên kết tiện ích được cung cấp tại địa điểm.
+ */
 @Entity
 @Table(name = "venue_amenities", schema = "sporthub")
 @Getter
@@ -26,19 +29,23 @@ import java.util.UUID;
 public class VenueAmenity {
 
     @EmbeddedId
+    // Mã định danh bản ghi.
     private VenueAmenityId id = new VenueAmenityId();
 
     @MapsId("venueId")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "venue_id", nullable = false)
+    // Địa điểm liên quan.
     private Venue venue;
 
     @MapsId("amenityId")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "amenity_id", nullable = false)
+    // Tiện ích được liên kết.
     private Amenity amenity;
 
     @Column(name = "details", length = 255)
+    // Thông tin bổ sung.
     private String details;
 
     @Embeddable
@@ -49,9 +56,11 @@ public class VenueAmenity {
     @EqualsAndHashCode
     public static class VenueAmenityId implements Serializable {
         @Column(name = "venue_id", nullable = false)
+        // Mã địa điểm trong khóa ghép.
         private UUID venueId;
 
         @Column(name = "amenity_id", nullable = false)
+        // Mã tiện ích trong khóa ghép.
         private UUID amenityId;
     }
 }

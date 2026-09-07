@@ -1,5 +1,11 @@
 package com.vesanrebackend.entity.enums;
 
+/**
+ * Vai trò của thành viên cửa hàng.
+ */
 public enum ShopMemberRole {
-    MANAGER, STAFF
+    // Quản lý cửa hàng.
+    MANAGER,
+    // Nhân viên cửa hàng.
+    STAFF
 }
