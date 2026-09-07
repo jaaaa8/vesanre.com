@@ -1,5 +1,13 @@
 package com.vesanrebackend.entity.enums;
 
+/**
+ * Trạng thái của giao dịch thanh toán.
+ */
 public enum PaymentTransactionStatus {
-    PENDING, SUCCEEDED, FAILED
+    // Đang chờ xử lý.
+    PENDING,
+    // Đã thành công.
+    SUCCEEDED,
+    // Xử lý thất bại.
+    FAILED
 }

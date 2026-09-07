@@ -18,6 +18,9 @@ import lombok.Setter;
 import java.io.Serializable;
 import java.util.UUID;
 
+/**
+ * Liên kết tiện ích được trang bị cho sân.
+ */
 @Entity
 @Table(name = "court_amenities", schema = "sporthub")
 @Getter
@@ -26,19 +29,23 @@ import java.util.UUID;
 public class CourtAmenity {
 
     @EmbeddedId
+    // Mã định danh bản ghi.
     private CourtAmenityId id = new CourtAmenityId();
 
     @MapsId("courtId")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "court_id", nullable = false)
+    // Sân liên quan.
     private Court court;
 
     @MapsId("amenityId")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "amenity_id", nullable = false)
+    // Tiện ích được liên kết.
     private Amenity amenity;
 
     @Column(name = "details", length = 255)
+    // Thông tin bổ sung.
     private String details;
 
     @Embeddable
@@ -49,9 +56,11 @@ public class CourtAmenity {
     @EqualsAndHashCode
     public static class CourtAmenityId implements Serializable {
         @Column(name = "court_id", nullable = false)
+        // Mã sân trong khóa ghép.
         private UUID courtId;
 
         @Column(name = "amenity_id", nullable = false)
+        // Mã tiện ích trong khóa ghép.
         private UUID amenityId;
     }
 }

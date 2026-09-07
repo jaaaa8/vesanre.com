@@ -22,6 +22,9 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Đánh giá của khách hàng sau khi sử dụng sân.
+ */
 @Entity
 @Table(name = "reviews", schema = "sporthub")
 @Getter
@@ -32,41 +35,52 @@ public class Review {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false)
+    // Mã định danh bản ghi.
     private UUID id;
 
     @OneToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "booking_id", nullable = false, unique = true)
+    // Đơn đặt sân liên quan.
     private Booking booking;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "customer_id", nullable = false)
+    // Khách hàng đặt sân.
     private UserAccount customer;
 
     @Column(name = "rating", nullable = false)
+    // Điểm đánh giá.
     private Short rating;
 
     @Column(name = "comment", columnDefinition = "text")
+    // Nội dung đánh giá.
     private String comment;
 
     @Column(name = "provider_reply", columnDefinition = "text")
+    // Phản hồi của nhà cung cấp.
     private String providerReply;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "replied_by")
+    // Người dùng gửi phản hồi.
     private UserAccount repliedBy;
 
     @Column(name = "replied_at", columnDefinition = "timestamp with time zone")
+    // Thời điểm phản hồi.
     private Instant repliedAt;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
+    // Trạng thái hiện tại.
     private ReviewStatus status = ReviewStatus.PUBLISHED;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false, columnDefinition = "timestamp with time zone")
+    // Thời điểm tạo bản ghi.
     private Instant createdAt;
 
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false, columnDefinition = "timestamp with time zone")
+    // Thời điểm cập nhật gần nhất.
     private Instant updatedAt;
 }

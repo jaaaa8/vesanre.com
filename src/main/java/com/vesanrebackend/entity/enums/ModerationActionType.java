@@ -1,5 +1,15 @@
 package com.vesanrebackend.entity.enums;
 
+/**
+ * Loại hành động kiểm duyệt.
+ */
 public enum ModerationActionType {
-    APPROVE, REJECT, SUSPEND, REACTIVATE
+    // Phê duyệt.
+    APPROVE,
+    // Từ chối.
+    REJECT,
+    // Tạm đình chỉ.
+    SUSPEND,
+    // Kích hoạt lại.
+    REACTIVATE
 }

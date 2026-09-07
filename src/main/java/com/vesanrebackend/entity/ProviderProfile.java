@@ -20,6 +20,9 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Hồ sơ nhà cung cấp gắn với tài khoản.
+ */
 @Entity
 @Table(name = "provider_profiles", schema = "sporthub")
 @Getter
@@ -29,34 +32,43 @@ public class ProviderProfile {
 
     @Id
     @Column(name = "user_id", nullable = false)
+    // Mã người dùng trong khóa ghép.
     private UUID userId;
 
     @MapsId
     @OneToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
+    // Người dùng liên quan.
     private UserAccount user;
 
     @Column(name = "legal_name", nullable = false, length = 200)
+    // Tên pháp lý của nhà cung cấp.
     private String legalName;
 
     @Column(name = "tax_id", length = 50)
+    // Mã số thuế nhà cung cấp.
     private String taxId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
+    // Trạng thái hiện tại.
     private ProviderStatus status = ProviderStatus.PENDING;
 
     @Column(name = "verified_at", columnDefinition = "timestamp with time zone")
+    // Thời điểm xác minh nhà cung cấp.
     private Instant verifiedAt;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false, columnDefinition = "timestamp with time zone")
+    // Thời điểm tạo bản ghi.
     private Instant createdAt;
 
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false, columnDefinition = "timestamp with time zone")
+    // Thời điểm cập nhật gần nhất.
     private Instant updatedAt;
 
     @OneToOne(mappedBy = "owner", fetch = FetchType.LAZY)
+    // Cửa hàng liên quan.
     private Shop shop;
 }

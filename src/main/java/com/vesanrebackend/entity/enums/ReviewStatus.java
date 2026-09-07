@@ -1,5 +1,11 @@
 package com.vesanrebackend.entity.enums;
 
+/**
+ * Trạng thái hiển thị đánh giá.
+ */
 public enum ReviewStatus {
-    PUBLISHED, HIDDEN
+    // Đã công bố.
+    PUBLISHED,
+    // Đã ẩn.
+    HIDDEN
 }
