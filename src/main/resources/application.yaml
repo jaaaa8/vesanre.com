@@ -1,3 +1,14 @@
 spring:
   application:
     name: vesanre-backend
+  config:
+    import: optional:file:.env[.properties]
+
+app:
+  cors:
+    allowed-origin: ${SPORTHUB_CORS_ALLOWED_ORIGIN:http://localhost:5173}
+  security:
+    jwt:
+      secret: ${SPORTHUB_JWT_SECRET}
+      issuer: ${SPORTHUB_JWT_ISSUER:sporthub}
+      access-token-ttl-seconds: ${SPORTHUB_JWT_ACCESS_TOKEN_TTL_SECONDS:900}
