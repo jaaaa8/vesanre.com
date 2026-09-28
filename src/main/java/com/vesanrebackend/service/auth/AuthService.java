@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -54,8 +55,16 @@ public class AuthService {
         if (PROVIDER.equals(roleCode) && (request.legalName() == null || request.legalName().isBlank())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "legalName is required for PROVIDER");
         }
+        // BCrypt rejects more than 72 bytes; @Size counts chars, so multi-byte passwords can slip through.
+        if (request.password().getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "password must be at most 72 bytes");
+        }
         if (users.existsByEmailNormalized(normalizedEmail)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already registered");
+        }
+        String phone = normalizeOptional(request.phone());
+        if (phone != null && users.existsByPhone(phone)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Phone already registered");
         }
 
         UserAccount user = new UserAccount();
@@ -63,7 +72,7 @@ public class AuthService {
         user.setEmailNormalized(normalizedEmail);
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setDisplayName(request.displayName().trim());
-        user.setPhone(normalizeOptional(request.phone()));
+        user.setPhone(phone);
         user = users.save(user);
 
         Role role = roles.findById(roleCode)

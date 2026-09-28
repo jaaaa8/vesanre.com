@@ -3,6 +3,13 @@ spring:
     name: vesanre-backend
   config:
     import: optional:file:.env[.properties]
+  datasource:
+    url: ${SPORTHUB_DB_URL}
+    username: ${SPORTHUB_DB_USERNAME}
+    password: ${SPORTHUB_DB_PASSWORD}
+  mvc:
+    problemdetails:
+      enabled: true
 
 app:
   cors:

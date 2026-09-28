@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: sporthub
+          POSTGRES_USER: sporthub
+          POSTGRES_PASSWORD: sporthub
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sporthub"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SPORTHUB_DB_URL: jdbc:postgresql://localhost:5432/sporthub
+      SPORTHUB_DB_USERNAME: sporthub
+      SPORTHUB_DB_PASSWORD: sporthub
+      SPORTHUB_JWT_SECRET: ci-only-secret-at-least-thirty-two-bytes
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: bash ./gradlew test

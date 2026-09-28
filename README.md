@@ -29,7 +29,7 @@ SportHub là nền tảng web marketplace kết nối người cần thuê sân 
 
 ### Kiến trúc toàn hệ thống dự kiến
 
-- Frontend: Next.js, React và TypeScript.
+- Frontend: React, TypeScript và Vite.
 - Bảo mật: Spring Security và JWT.
 - Hạ tầng/tích hợp: Docker, Cloud Storage, Map API và cổng thanh toán.
 - Redis chỉ được bổ sung khi có nhu cầu cache hoặc rate limiting được chứng minh.
@@ -37,6 +37,18 @@ SportHub là nền tảng web marketplace kết nối người cần thuê sân 
 ## Phạm vi repository
 
 Repository này chứa backend của SportHub. Hiện tại dự án đã có schema PostgreSQL, migration Flyway và các entity nền tảng cho người dùng, nhà cung cấp, sân, booking, thanh toán, đánh giá, thông báo và audit. REST API cùng các luồng nghiệp vụ sẽ được hoàn thiện theo từng sprint.
+
+## Chạy local
+
+1. Tạo database PostgreSQL rỗng (ví dụ `sporthub`).
+2. Sao chép `.env.example` thành `.env` và điền `SPORTHUB_DB_*`, `SPORTHUB_JWT_SECRET` (tối thiểu 32 byte).
+3. Chạy `./gradlew bootRun`. Flyway tự tạo schema `sporthub`.
+
+Muốn có sẵn tài khoản thử, chạy với profile `testdata` (`--spring.profiles.active=testdata`): tạo `customer@`, `provider@`, `admin@test.sporthub.local` với mật khẩu `SportHub@123`. **Không bật profile này trên staging/production.**
+
+## Kiểm thử
+
+`./gradlew test` cần database từ `.env` hoặc biến môi trường `SPORTHUB_DB_*`; integration test ghi user ngẫu nhiên vào database đó nên nên dùng database riêng cho test. CI (`.github/workflows/ci.yml`) chạy toàn bộ test với PostgreSQL 18 dựng trong job.
 
 ## Ngoài phạm vi MVP
 
