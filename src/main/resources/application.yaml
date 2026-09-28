@@ -3,6 +3,16 @@ spring:
     name: vesanre-backend
   config:
     import: optional:file:.env[.properties]
+  datasource:
+    url: ${SPORTHUB_DB_URL}
+    username: ${SPORTHUB_DB_USERNAME}
+    password: ${SPORTHUB_DB_PASSWORD}
+  flyway:
+    # Pin history to public: with DB user "sporthub", search_path "$user" flips to the sporthub schema after V1.
+    default-schema: public
+  mvc:
+    problemdetails:
+      enabled: true
 
 app:
   cors:
