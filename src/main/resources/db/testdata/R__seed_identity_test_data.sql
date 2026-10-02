@@ -19,12 +19,21 @@ UNION ALL
 SELECT id, 'ADMIN' FROM sporthub.users WHERE email_normalized = 'admin@test.sporthub.local'
 ON CONFLICT (user_id, role_code) DO NOTHING;
 
-INSERT INTO sporthub.provider_profiles (user_id, legal_name, status)
-SELECT id, 'SportHub Test Provider', 'PENDING'
+INSERT INTO sporthub.provider_profiles (user_id, legal_name, status, verified_at)
+SELECT id, 'SportHub Test Provider', 'VERIFIED', CURRENT_TIMESTAMP
 FROM sporthub.users
 WHERE email_normalized = 'provider@test.sporthub.local'
 ON CONFLICT (user_id) DO UPDATE SET
     legal_name = EXCLUDED.legal_name,
     status = EXCLUDED.status,
-    verified_at = NULL,
+    verified_at = EXCLUDED.verified_at,
+    updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO sporthub.shops (id, owner_user_id, slug, name, default_cancellation_policy, status)
+SELECT '00000000-0000-4000-8000-000000000201', user_id, 'test-provider-shop', 'Test Provider Shop', '{}'::jsonb, 'DRAFT'
+FROM sporthub.provider_profiles
+WHERE user_id = (SELECT id FROM sporthub.users WHERE email_normalized = 'provider@test.sporthub.local')
+ON CONFLICT (owner_user_id) DO UPDATE SET
+    slug = EXCLUDED.slug,
+    name = EXCLUDED.name,
     updated_at = CURRENT_TIMESTAMP;

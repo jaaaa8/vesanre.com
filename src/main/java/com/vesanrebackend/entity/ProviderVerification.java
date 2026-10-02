@@ -23,7 +23,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Hồ sơ xác minh nhà cung cấp hoặc cửa hàng.
+ * Hồ sơ xác minh nhà cung cấp.
  */
 @Entity
 @Table(name = "provider_verifications", schema = "sporthub")
@@ -39,9 +39,9 @@ public class ProviderVerification {
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "shop_id", nullable = false)
-    // Cửa hàng liên quan.
-    private Shop shop;
+    @JoinColumn(name = "provider_user_id", nullable = false)
+    // Nhà cung cấp được xác minh.
+    private ProviderProfile provider;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "submitted_by", nullable = false)

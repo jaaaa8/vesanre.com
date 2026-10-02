@@ -63,6 +63,16 @@ class ProfileControllerSecurityTest {
     }
 
     @Test
+    void preflightAllowsPutAndDelete() throws Exception {
+        for (String method : new String[]{"PUT", "DELETE"}) {
+            mvc.perform(options("/api/profile/me")
+                            .header("Origin", "http://localhost:5173")
+                            .header("Access-Control-Request-Method", method))
+                    .andExpect(status().isOk());
+        }
+    }
+
+    @Test
     void vitePreflightIsAllowed() throws Exception {
         mvc.perform(options("/api/profile/me")
                         .header("Origin", "http://localhost:5173")

@@ -42,6 +42,7 @@ public class CourtPricingRule {
 
     @Column(name = "weekday", nullable = false)
     // Ngày trong tuần theo quy ước hệ thống.
+    // 0 = Thứ Hai … 6 = Chủ Nhật, tức DayOfWeek.getValue() - 1.
     private Short weekday;
 
     @Column(name = "start_minute", nullable = false)

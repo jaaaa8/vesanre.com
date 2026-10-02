@@ -90,8 +90,4 @@ public class Shop {
     @OneToMany(mappedBy = "shop")
     // Danh sách địa điểm liên quan.
     private List<Venue> venues = new ArrayList<>();
-
-    @OneToMany(mappedBy = "shop")
-    // Danh sách hồ sơ xác minh.
-    private List<ProviderVerification> verifications = new ArrayList<>();
 }

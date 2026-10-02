@@ -2,6 +2,7 @@ package com.vesanrebackend.controller.auth;
 
 import com.vesanrebackend.dto.auth.LoginRequest;
 import com.vesanrebackend.dto.auth.LoginResponse;
+import com.vesanrebackend.dto.auth.ProviderRegisterRequest;
 import com.vesanrebackend.dto.auth.RegisterRequest;
 import com.vesanrebackend.dto.auth.UserProfileResponse;
 import com.vesanrebackend.service.auth.AuthService;
@@ -30,11 +31,17 @@ public class AuthController {
         return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(request));
     }
 
+    @PostMapping("/register/provider")
+    public ResponseEntity<UserProfileResponse> registerProvider(@Valid @RequestBody ProviderRegisterRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(authService.registerProvider(request));
+    }
+
     @PostMapping("/login")
     public LoginResponse login(@Valid @RequestBody LoginRequest request) {
         return jwtService.issue(authService.login(request));
     }
 
+    // Logout is client-side: JWT is stateless, so the token simply expires after its TTL.
     @PostMapping("/logout")
     public ResponseEntity<Void> logout() {
         return ResponseEntity.noContent().build();
