@@ -1,0 +1,174 @@
+package com.vesanrebackend.service.admin;
+
+import com.vesanrebackend.dto.admin.AdminProviderResponse;
+import com.vesanrebackend.entity.AuditLog;
+import com.vesanrebackend.entity.ProviderProfile;
+import com.vesanrebackend.entity.ProviderVerification;
+import com.vesanrebackend.entity.Shop;
+import com.vesanrebackend.entity.UserAccount;
+import com.vesanrebackend.entity.enums.ProviderStatus;
+import com.vesanrebackend.entity.enums.ShopStatus;
+import com.vesanrebackend.entity.enums.VerificationStatus;
+import com.vesanrebackend.repository.AuditLogRepository;
+import com.vesanrebackend.repository.ProviderProfileRepository;
+import com.vesanrebackend.repository.ProviderVerificationRepository;
+import com.vesanrebackend.repository.UserAccountRepository;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.web.server.ResponseStatusException;
+import tools.jackson.databind.json.JsonMapper;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class AdminProviderServiceTest {
+    private static final Instant NOW = Instant.parse("2026-10-03T10:00:00Z");
+
+    private final ProviderProfileRepository providerProfiles = mock(ProviderProfileRepository.class);
+    private final ProviderVerificationRepository verifications = mock(ProviderVerificationRepository.class);
+    private final UserAccountRepository users = mock(UserAccountRepository.class);
+    private final AuditLogRepository auditLogs = mock(AuditLogRepository.class);
+    private final AdminProviderService service = new AdminProviderService(providerProfiles, verifications, users, auditLogs,
+            JsonMapper.builder().build(), Clock.fixed(NOW, ZoneOffset.UTC));
+
+    private final UUID adminId = UUID.randomUUID();
+    private final UUID providerId = UUID.randomUUID();
+    private final UserAccount admin = new UserAccount();
+    private final ProviderProfile profile = profile(ProviderStatus.PENDING);
+    private final Shop shop = profile.getShop();
+    private final ProviderVerification verification = verification();
+
+    @Test
+    void approveVerifiesProfileApprovesVerificationAndAuditsWithoutTouchingShop() {
+        stubPending();
+
+        AdminProviderResponse response = service.approve(adminId, providerId);
+
+        assertThat(profile.getStatus()).isEqualTo(ProviderStatus.VERIFIED);
+        assertThat(profile.getVerifiedAt()).isEqualTo(NOW);
+        assertThat(verification.getStatus()).isEqualTo(VerificationStatus.APPROVED);
+        assertThat(verification.getReviewedBy()).isSameAs(admin);
+        assertThat(verification.getReviewedAt()).isEqualTo(NOW);
+        assertThat(verification.getRejectionReason()).isNull();
+        assertThat(shop.getStatus()).isEqualTo(ShopStatus.DRAFT);
+        assertThat(response.status()).isEqualTo("VERIFIED");
+        assertThat(response.shop().status()).isEqualTo("DRAFT");
+        assertThat(response.verification().status()).isEqualTo("APPROVED");
+
+        AuditLog log = savedAudit();
+        assertThat(log.getAction()).isEqualTo("PROVIDER_APPROVED");
+        assertThat(log.getEntityType()).isEqualTo("PROVIDER_PROFILE");
+        assertThat(log.getEntityId()).isEqualTo(providerId);
+        assertThat(log.getActorUser()).isSameAs(admin);
+        assertThat(log.getBeforeData()).isEqualTo("{\"status\":\"PENDING\"}");
+        assertThat(log.getAfterData()).isEqualTo("{\"status\":\"VERIFIED\"}");
+    }
+
+    @Test
+    void rejectStoresReasonAndLeavesShopAndVerifiedAtUntouched() {
+        stubPending();
+
+        AdminProviderResponse response = service.reject(adminId, providerId, "Tax id \"x\" is invalid");
+
+        assertThat(profile.getStatus()).isEqualTo(ProviderStatus.REJECTED);
+        assertThat(profile.getVerifiedAt()).isNull();
+        assertThat(verification.getStatus()).isEqualTo(VerificationStatus.REJECTED);
+        assertThat(verification.getRejectionReason()).isEqualTo("Tax id \"x\" is invalid");
+        assertThat(verification.getReviewedBy()).isSameAs(admin);
+        assertThat(verification.getReviewedAt()).isEqualTo(NOW);
+        assertThat(shop.getStatus()).isEqualTo(ShopStatus.DRAFT);
+        assertThat(response.status()).isEqualTo("REJECTED");
+
+        AuditLog log = savedAudit();
+        assertThat(log.getAction()).isEqualTo("PROVIDER_REJECTED");
+        // Reason goes through Jackson, so quotes are escaped instead of breaking the JSON.
+        assertThat(log.getAfterData()).isEqualTo("{\"status\":\"REJECTED\",\"reason\":\"Tax id \\\"x\\\" is invalid\"}");
+    }
+
+    @Test
+    void notPendingIsConflict() {
+        profile.setStatus(ProviderStatus.VERIFIED);
+        when(providerProfiles.findByIdForUpdate(providerId)).thenReturn(Optional.of(profile));
+
+        assertStatus(() -> service.approve(adminId, providerId), 409, "Provider is not pending");
+        assertStatus(() -> service.reject(adminId, providerId, "no"), 409, "Provider is not pending");
+        verify(auditLogs, never()).save(any());
+    }
+
+    @Test
+    void unknownProviderIsNotFound() {
+        when(providerProfiles.findByIdForUpdate(providerId)).thenReturn(Optional.empty());
+
+        assertStatus(() -> service.approve(adminId, providerId), 404, "Provider not found");
+        assertStatus(() -> service.reject(adminId, providerId, "no"), 404, "Provider not found");
+    }
+
+    @Test
+    void missingPendingVerificationIsConflictAndChangesNothing() {
+        when(providerProfiles.findByIdForUpdate(providerId)).thenReturn(Optional.of(profile));
+        when(verifications.findByProviderAndStatus(providerId, VerificationStatus.PENDING)).thenReturn(Optional.empty());
+
+        assertStatus(() -> service.approve(adminId, providerId), 409, "Provider has no pending verification");
+        assertStatus(() -> service.reject(adminId, providerId, "no"), 409, "Provider has no pending verification");
+        assertThat(profile.getStatus()).isEqualTo(ProviderStatus.PENDING);
+        verify(auditLogs, never()).save(any());
+    }
+
+    private void stubPending() {
+        when(providerProfiles.findByIdForUpdate(providerId)).thenReturn(Optional.of(profile));
+        when(verifications.findByProviderAndStatus(providerId, VerificationStatus.PENDING)).thenReturn(Optional.of(verification));
+        when(users.getReferenceById(adminId)).thenReturn(admin);
+    }
+
+    private AuditLog savedAudit() {
+        ArgumentCaptor<AuditLog> captor = ArgumentCaptor.forClass(AuditLog.class);
+        verify(auditLogs).save(captor.capture());
+        return captor.getValue();
+    }
+
+    private void assertStatus(Runnable call, int status, String reason) {
+        assertThatThrownBy(call::run)
+                .isInstanceOfSatisfying(ResponseStatusException.class, error -> {
+                    assertThat(error.getStatusCode().value()).isEqualTo(status);
+                    assertThat(error.getReason()).isEqualTo(reason);
+                });
+    }
+
+    private ProviderProfile profile(ProviderStatus status) {
+        UserAccount user = new UserAccount();
+        user.setId(providerId);
+        user.setEmail("provider@example.com");
+        user.setDisplayName("Provider");
+        ProviderProfile profile = new ProviderProfile();
+        profile.setUserId(providerId);
+        profile.setUser(user);
+        profile.setLegalName("Legal");
+        profile.setStatus(status);
+        Shop shop = new Shop();
+        shop.setId(UUID.randomUUID());
+        shop.setName("Shop");
+        shop.setSlug("shop-abc123");
+        shop.setOwner(profile);
+        profile.setShop(shop);
+        return profile;
+    }
+
+    private ProviderVerification verification() {
+        ProviderVerification verification = new ProviderVerification();
+        verification.setId(UUID.randomUUID());
+        verification.setProvider(profile);
+        verification.setDocuments("[]");
+        return verification;
+    }
+}
