@@ -1,6 +1,5 @@
 package com.vesanrebackend.entity.court;
 
-import com.vesanrebackend.entity.court.Court;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
 import jakarta.persistence.EmbeddedId;

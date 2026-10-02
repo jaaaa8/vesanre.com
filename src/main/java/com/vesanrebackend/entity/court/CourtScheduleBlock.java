@@ -2,7 +2,6 @@ package com.vesanrebackend.entity.court;
 
 import com.vesanrebackend.entity.account.UserAccount;
 import com.vesanrebackend.entity.booking.Booking;
-import com.vesanrebackend.entity.court.Court;
 import com.vesanrebackend.entity.enums.ScheduleBlockKind;
 import com.vesanrebackend.entity.enums.ScheduleBlockState;
 import jakarta.persistence.Column;
