@@ -1,5 +1,6 @@
-package com.vesanrebackend.entity;
+package com.vesanrebackend.entity.venue;
 
+import com.vesanrebackend.entity.catalog.Amenity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
 import jakarta.persistence.EmbeddedId;

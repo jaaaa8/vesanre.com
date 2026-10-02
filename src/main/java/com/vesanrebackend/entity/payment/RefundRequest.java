@@ -1,5 +1,7 @@
-package com.vesanrebackend.entity;
+package com.vesanrebackend.entity.payment;
 
+import com.vesanrebackend.entity.account.UserAccount;
+import com.vesanrebackend.entity.booking.Booking;
 import com.vesanrebackend.entity.enums.RefundStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

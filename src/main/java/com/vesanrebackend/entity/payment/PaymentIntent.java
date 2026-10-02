@@ -1,5 +1,6 @@
-package com.vesanrebackend.entity;
+package com.vesanrebackend.entity.payment;
 
+import com.vesanrebackend.entity.booking.Booking;
 import com.vesanrebackend.entity.enums.PaymentIntentStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

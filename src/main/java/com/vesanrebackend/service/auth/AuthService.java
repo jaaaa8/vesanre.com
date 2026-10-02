@@ -1,16 +1,16 @@
 package com.vesanrebackend.service.auth;
 
 import com.vesanrebackend.dto.auth.LoginRequest;
-import com.vesanrebackend.dto.auth.ProviderRegisterRequest;
+import com.vesanrebackend.dto.auth.ProviderApplicationRequest;
 import com.vesanrebackend.dto.auth.RegisterRequest;
 import com.vesanrebackend.dto.auth.UpdateProfileRequest;
 import com.vesanrebackend.dto.auth.UserProfileResponse;
-import com.vesanrebackend.entity.ProviderProfile;
-import com.vesanrebackend.entity.ProviderVerification;
-import com.vesanrebackend.entity.Role;
-import com.vesanrebackend.entity.Shop;
-import com.vesanrebackend.entity.UserAccount;
-import com.vesanrebackend.entity.UserRole;
+import com.vesanrebackend.entity.provider.ProviderProfile;
+import com.vesanrebackend.entity.provider.ProviderVerification;
+import com.vesanrebackend.entity.account.Role;
+import com.vesanrebackend.entity.shop.Shop;
+import com.vesanrebackend.entity.account.UserAccount;
+import com.vesanrebackend.entity.account.UserRole;
 import com.vesanrebackend.entity.enums.ProviderStatus;
 import com.vesanrebackend.entity.enums.UserStatus;
 import com.vesanrebackend.repository.ProviderProfileRepository;
@@ -35,7 +35,6 @@ import java.util.stream.Collectors;
 @Service
 public class AuthService {
     private static final String CUSTOMER = "CUSTOMER";
-    private static final String PROVIDER = "PROVIDER";
     private static final String SLUG_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789";
     private static final SecureRandom RANDOM = new SecureRandom();
     // Valid BCrypt hash of a throwaway string; unknown emails are checked against it so response time does not reveal them.
@@ -63,36 +62,43 @@ public class AuthService {
 
     @Transactional
     public UserProfileResponse register(RegisterRequest request) {
-        String roleCode = request.role() == null || request.role().isBlank()
-                ? CUSTOMER : request.role().trim().toUpperCase(Locale.ROOT);
-        if (!CUSTOMER.equals(roleCode)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Providers must register via /api/auth/register/provider");
-        }
         UserAccount user = createAccount(request.email(), request.password(), request.displayName(), request.phone(), CUSTOMER);
         return toResponse(user, null);
     }
 
+    // Becoming a provider is an application from a CUSTOMER account; the PROVIDER role is granted on approval.
     @Transactional
-    public UserProfileResponse registerProvider(ProviderRegisterRequest request) {
-        UserAccount user = createAccount(request.email(), request.password(), request.displayName(), request.phone(), PROVIDER);
+    public UserProfileResponse applyProvider(UUID userId, ProviderApplicationRequest request) {
+        UserAccount user = findUser(userId);
+        ProviderProfile providerProfile = providerProfiles.findByIdForUpdate(userId).orElse(null);
         String legalName = request.legalName().trim();
 
-        ProviderProfile providerProfile = new ProviderProfile();
-        providerProfile.setUser(user);
-        providerProfile.setLegalName(legalName);
-        providerProfile.setTaxId(normalizeOptional(request.taxId()));
-        providerProfile = providerProfiles.save(providerProfile);
+        if (providerProfile == null) {
+            providerProfile = new ProviderProfile();
+            providerProfile.setUser(user);
+            providerProfile.setLegalName(legalName);
+            providerProfile.setTaxId(normalizeOptional(request.taxId()));
+            providerProfile = providerProfiles.save(providerProfile);
 
-        // Every provider owns exactly one shop from day one; it stays DRAFT until moderation approves it separately.
-        String shopName = normalizeOptional(request.shopName());
-        Shop shop = new Shop();
-        shop.setOwner(providerProfile);
-        String name = shopName != null ? shopName : legalName;
-        shop.setName(name.substring(0, Math.min(name.length(), 160))); // legalName may exceed shops.name length
-        shop.setSlug(generateSlug(shop.getName()));
-        shop.setDescription(normalizeOptional(request.shopDescription()));
-        shop.setDefaultCancellationPolicy("{}");
-        shops.save(shop);
+            // Every provider owns exactly one shop from day one; it stays DRAFT until moderation approves it separately.
+            Shop shop = new Shop();
+            shop.setOwner(providerProfile);
+            shop.setName(shopName(request, legalName));
+            shop.setSlug(generateSlug(shop.getName()));
+            shop.setDescription(normalizeOptional(request.shopDescription()));
+            shop.setDefaultCancellationPolicy("{}");
+            shops.save(shop);
+        } else if (providerProfile.getStatus() == ProviderStatus.REJECTED) {
+            providerProfile.setLegalName(legalName);
+            providerProfile.setTaxId(normalizeOptional(request.taxId()));
+            providerProfile.setStatus(ProviderStatus.PENDING);
+            providerProfile.setVerifiedAt(null);
+            Shop shop = providerProfile.getShop();
+            shop.setName(shopName(request, legalName)); // slug stays stable across re-applications
+            shop.setDescription(normalizeOptional(request.shopDescription()));
+        } else {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Provider application is already " + providerProfile.getStatus());
+        }
 
         ProviderVerification verification = new ProviderVerification();
         verification.setProvider(providerProfile);
@@ -100,7 +106,7 @@ public class AuthService {
         verification.setDocuments("[]");
         providerVerifications.save(verification);
 
-        return toResponse(user, providerProfile.getStatus());
+        return toResponse(user, ProviderStatus.PENDING);
     }
 
     // Deliberately not @Transactional: BCrypt is slow and must not hold a DB connection while it runs.
@@ -113,16 +119,7 @@ public class AuthService {
         if (user.getStatus() != UserStatus.ACTIVE || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
-        ProviderStatus providerStatus = providerStatus(user);
-        if (providerStatus != null && providerStatus != ProviderStatus.VERIFIED) {
-            String reason = switch (providerStatus) {
-                case REJECTED -> "was rejected";
-                case SUSPENDED -> "is suspended";
-                default -> "is pending approval";
-            };
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Provider account " + reason);
-        }
-        return toResponse(user, providerStatus);
+        return toResponse(user, providerStatus(user));
     }
 
     @Transactional(readOnly = true)
@@ -199,12 +196,9 @@ public class AuthService {
         return user;
     }
 
-    // Only providers have a profile row, so skip the lookup for everyone else.
+    // Applicants hold only CUSTOMER until approved, so the profile lookup cannot be gated on the PROVIDER role.
     private ProviderStatus providerStatus(UserAccount user) {
-        if (user.getUserRoles().stream().noneMatch(userRole -> PROVIDER.equals(userRole.getRole().getCode()))) {
-            return null;
-        }
-        return providerProfiles.findById(user.getId()).map(ProviderProfile::getStatus).orElse(ProviderStatus.PENDING);
+        return providerProfiles.findById(user.getId()).map(ProviderProfile::getStatus).orElse(null);
     }
 
     private UserProfileResponse toResponse(UserAccount user) {
@@ -233,6 +227,12 @@ public class AuthService {
             suffix.append(SLUG_CHARS.charAt(RANDOM.nextInt(SLUG_CHARS.length())));
         }
         return base + suffix;
+    }
+
+    private String shopName(ProviderApplicationRequest request, String legalName) {
+        String shopName = normalizeOptional(request.shopName());
+        String name = shopName != null ? shopName : legalName;
+        return name.substring(0, Math.min(name.length(), 160)); // legalName may exceed shops.name length
     }
 
     private String normalizeOptional(String value) {

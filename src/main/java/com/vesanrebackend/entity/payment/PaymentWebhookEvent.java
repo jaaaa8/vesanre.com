@@ -1,4 +1,4 @@
-package com.vesanrebackend.entity;
+package com.vesanrebackend.entity.payment;
 
 import com.vesanrebackend.entity.enums.WebhookEventStatus;
 import jakarta.persistence.Column;

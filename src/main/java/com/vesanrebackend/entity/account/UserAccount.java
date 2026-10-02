@@ -1,4 +1,4 @@
-package com.vesanrebackend.entity;
+package com.vesanrebackend.entity.account;
 
 import com.vesanrebackend.entity.enums.UserStatus;
 import jakarta.persistence.Column;

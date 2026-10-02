@@ -1,6 +1,7 @@
-package com.vesanrebackend.entity;
+package com.vesanrebackend.entity.court;
 
 import com.vesanrebackend.entity.enums.CourtStatus;
+import com.vesanrebackend.entity.venue.Venue;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

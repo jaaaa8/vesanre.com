@@ -1,6 +1,8 @@
-package com.vesanrebackend.entity;
+package com.vesanrebackend.entity.shop;
 
+import com.vesanrebackend.entity.venue.Venue;
 import com.vesanrebackend.entity.enums.ShopStatus;
+import com.vesanrebackend.entity.provider.ProviderProfile;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -10,7 +12,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;

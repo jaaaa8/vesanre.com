@@ -33,7 +33,7 @@ class AuthFlowIntegrationTest {
         String email = "it-" + suffix + "@example.com";
         String phone = "09" + suffix;
         Map<String, Object> customer = Map.of("email", email, "password", "correct-password",
-                "displayName", "IT Customer", "phone", phone, "role", "CUSTOMER");
+                "displayName", "IT Customer", "phone", phone);
 
         assertThat(post(client, "/api/auth/register", customer).getStatusCode().value()).isEqualTo(201);
 
@@ -42,23 +42,24 @@ class AuthFlowIntegrationTest {
         assertThat(duplicateEmail.getBody()).containsEntry("detail", "Email already registered");
 
         Map<String, Object> samePhone = Map.of("email", "other-" + email, "password", "correct-password",
-                "displayName", "IT Other", "phone", phone, "role", "CUSTOMER");
+                "displayName", "IT Other", "phone", phone);
         assertThat(post(client, "/api/auth/register", samePhone).getStatusCode().value()).isEqualTo(409);
 
         assertThat(post(client, "/api/auth/register", Map.of()).getStatusCode().value()).isEqualTo(400);
 
-        // role is optional and defaults to CUSTOMER.
         Map<String, Object> noRole = Map.of("email", "norole-" + email, "password", "correct-password", "displayName", "IT NoRole");
         assertThat(post(client, "/api/auth/register", noRole).getStatusCode().value()).isEqualTo(201);
 
+        // A legacy role field is ignored: registration always creates a CUSTOMER.
         Map<String, Object> asProvider = Map.of("email", "prov-" + email, "password", "correct-password",
                 "displayName", "IT Sneaky", "role", "PROVIDER");
         ResponseEntity<Map> sneaky = post(client, "/api/auth/register", asProvider);
-        assertThat(sneaky.getStatusCode().value()).isEqualTo(400);
-        assertThat(sneaky.getBody()).containsEntry("detail", "Providers must register via /api/auth/register/provider");
+        assertThat(sneaky.getStatusCode().value()).isEqualTo(201);
+        assertThat(jdbc.queryForList("SELECT role_code FROM sporthub.user_roles WHERE user_id = ?", String.class,
+                UUID.fromString((String) sneaky.getBody().get("id")))).containsExactly("CUSTOMER");
 
         Map<String, Object> longPassword = Map.of("email", "long-" + email, "password", "ư".repeat(40),
-                "displayName", "IT Long", "role", "CUSTOMER");
+                "displayName", "IT Long");
         assertThat(post(client, "/api/auth/register", longPassword).getStatusCode().value()).isEqualTo(400);
 
         assertThat(post(client, "/api/auth/login", Map.of("email", email, "password", "wrong-password"))
@@ -81,23 +82,25 @@ class AuthFlowIntegrationTest {
     }
 
     @Test
-    void providerRegistrationCreatesPendingProfileDraftShopAndVerificationAndBlocksLoginUntilVerified() {
+    void providerApplicationCreatesPendingProfileDraftShopAndVerificationWhileLoginStaysOpen() {
         RestClient client = client();
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String email = "provider-" + suffix + "@example.com";
-        Map<String, Object> body = Map.of("email", email, "password", "correct-password", "displayName", "IT Provider",
-                "legalName", "Công ty Sân Đẹp " + suffix);
+        UUID userId = UUID.fromString((String) post(client, "/api/auth/register", Map.of("email", email,
+                "password", "correct-password", "displayName", "IT Provider")).getBody().get("id"));
+        String token = login(client, email);
+        Map<String, Object> body = Map.of("legalName", "C\u00f4ng ty S\u00e2n \u0110\u1eb9p " + suffix);
 
-        ResponseEntity<Map> registered = post(client, "/api/auth/register/provider", body);
-        assertThat(registered.getStatusCode().value()).isEqualTo(201);
-        assertThat(registered.getBody()).containsEntry("providerStatus", "PENDING");
-        assertThat(post(client, "/api/auth/register/provider", body).getStatusCode().value()).isEqualTo(409);
-        assertThat(post(client, "/api/auth/register/provider", Map.of("email", "x-" + email, "password", "correct-password",
-                "displayName", "No legal name")).getStatusCode().value()).isEqualTo(400);
+        assertThat(post(client, "/api/profile/provider-application", body).getStatusCode().value()).isEqualTo(401);
+        assertThat(postAs(client, "/api/profile/provider-application", Map.of(), token).getStatusCode().value()).isEqualTo(400);
 
-        UUID userId = UUID.fromString((String) registered.getBody().get("id"));
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM sporthub.user_roles WHERE user_id = ? AND role_code = 'PROVIDER'",
-                Integer.class, userId)).isEqualTo(1);
+        ResponseEntity<Map> applied = postAs(client, "/api/profile/provider-application", body, token);
+        assertThat(applied.getStatusCode().value()).isEqualTo(201);
+        assertThat(applied.getBody()).containsEntry("providerStatus", "PENDING");
+        assertThat(postAs(client, "/api/profile/provider-application", body, token).getStatusCode().value()).isEqualTo(409);
+
+        assertThat(jdbc.queryForList("SELECT role_code FROM sporthub.user_roles WHERE user_id = ?", String.class, userId))
+                .containsExactly("CUSTOMER");
         assertThat(jdbc.queryForObject("SELECT status FROM sporthub.provider_profiles WHERE user_id = ?",
                 String.class, userId)).isEqualTo("PENDING");
         assertThat(jdbc.queryForMap("SELECT status, slug FROM sporthub.shops WHERE owner_user_id = ?", userId))
@@ -106,20 +109,17 @@ class AuthFlowIntegrationTest {
         assertThat(jdbc.queryForMap("SELECT status, submitted_by, documents::text AS documents FROM sporthub.provider_verifications WHERE provider_user_id = ?", userId))
                 .containsEntry("status", "PENDING").containsEntry("submitted_by", userId).containsEntry("documents", "[]");
 
-        assertThat(post(client, "/api/auth/login", Map.of("email", email, "password", "wrong-password"))
-                .getStatusCode().value()).isEqualTo(401);
         ResponseEntity<Map> pending = post(client, "/api/auth/login", Map.of("email", email, "password", "correct-password"));
-        assertThat(pending.getStatusCode().value()).isEqualTo(403);
-        assertThat(pending.getBody()).containsEntry("detail", "Provider account is pending approval");
+        assertThat(pending.getStatusCode().value()).isEqualTo(200);
+        assertThat((Map<String, Object>) pending.getBody().get("user")).containsEntry("providerStatus", "PENDING");
+        assertThat(get(client, "/api/profile/provider", (String) pending.getBody().get("accessToken")).getStatusCode().value()).isEqualTo(403);
 
         jdbc.update("UPDATE sporthub.provider_profiles SET status = 'VERIFIED', verified_at = CURRENT_TIMESTAMP WHERE user_id = ?", userId);
-        ResponseEntity<Map> login = post(client, "/api/auth/login", Map.of("email", email, "password", "correct-password"));
-        assertThat(login.getStatusCode().value()).isEqualTo(200);
-        assertThat(get(client, "/api/profile/provider", (String) login.getBody().get("accessToken")).getStatusCode().value()).isEqualTo(200);
+        assertThat(postAs(client, "/api/profile/provider-application", body, token).getStatusCode().value()).isEqualTo(409);
     }
 
     @Test
-    void adminApprovesOrRejectsProviderAndOnlyApprovedProviderCanLogIn() {
+    void adminApprovalGrantsProviderRoleAndRejectedApplicantCanReapply() {
         RestClient client = client();
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String adminEmail = "admin-" + suffix + "@example.com";
@@ -134,8 +134,8 @@ class AuthFlowIntegrationTest {
         String rejectEmail = "reject-" + suffix + "@example.com";
         UUID approveId = registerProvider(client, approveEmail, "Approve " + suffix);
         UUID rejectId = registerProvider(client, rejectEmail, "Reject " + suffix);
-        assertThat(post(client, "/api/auth/login", Map.of("email", approveEmail, "password", "correct-password"))
-                .getStatusCode().value()).isEqualTo(403);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM sporthub.user_roles WHERE user_id = ? AND role_code = 'PROVIDER'",
+                Integer.class, approveId)).isZero();
 
         ResponseEntity<List> pending = client.get().uri("/api/admin/providers")
                 .headers(headers -> headers.setBearerAuth(adminToken)).retrieve().toEntity(List.class);
@@ -150,6 +150,8 @@ class AuthFlowIntegrationTest {
         ResponseEntity<Map> approved = postAs(client, "/api/admin/providers/" + approveId + "/approve", null, adminToken);
         assertThat(approved.getStatusCode().value()).isEqualTo(200);
         assertThat(approved.getBody()).containsEntry("status", "VERIFIED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM sporthub.user_roles WHERE user_id = ? AND role_code = 'PROVIDER'",
+                Integer.class, approveId)).isEqualTo(1);
         assertThat(postAs(client, "/api/admin/providers/" + approveId + "/approve", null, adminToken).getStatusCode().value()).isEqualTo(409);
         assertThat(postAs(client, "/api/admin/providers/" + UUID.randomUUID() + "/approve", null, adminToken).getStatusCode().value()).isEqualTo(404);
 
@@ -168,20 +170,38 @@ class AuthFlowIntegrationTest {
         assertThat(rejected.getStatusCode().value()).isEqualTo(200);
         assertThat(rejected.getBody()).containsEntry("status", "REJECTED");
         ResponseEntity<Map> rejectedLogin = post(client, "/api/auth/login", Map.of("email", rejectEmail, "password", "correct-password"));
-        assertThat(rejectedLogin.getStatusCode().value()).isEqualTo(403);
-        assertThat(rejectedLogin.getBody()).containsEntry("detail", "Provider account was rejected");
+        assertThat(rejectedLogin.getStatusCode().value()).isEqualTo(200);
+        assertThat((Map<String, Object>) rejectedLogin.getBody().get("user")).containsEntry("providerStatus", "REJECTED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM sporthub.user_roles WHERE user_id = ? AND role_code = 'PROVIDER'",
+                Integer.class, rejectId)).isZero();
         assertThat(jdbc.queryForMap("SELECT status, rejection_reason, reviewed_by FROM sporthub.provider_verifications WHERE provider_user_id = ?", rejectId))
                 .containsEntry("status", "REJECTED").containsEntry("rejection_reason", "Invalid tax id").containsEntry("reviewed_by", adminId);
         assertThat(jdbc.queryForObject("SELECT after_data->>'reason' FROM sporthub.audit_logs WHERE entity_id = ? AND action = 'PROVIDER_REJECTED'",
                 String.class, rejectId)).isEqualTo("Invalid tax id");
         assertThat(jdbc.queryForObject("SELECT status FROM sporthub.shops WHERE owner_user_id = ?", String.class, rejectId)).isEqualTo("DRAFT");
+
+        String slug = jdbc.queryForObject("SELECT slug FROM sporthub.shops WHERE owner_user_id = ?", String.class, rejectId);
+        ResponseEntity<Map> reapplied = postAs(client, "/api/profile/provider-application",
+                Map.of("legalName", "Reject again " + suffix), (String) rejectedLogin.getBody().get("accessToken"));
+        assertThat(reapplied.getStatusCode().value()).isEqualTo(201);
+        assertThat(reapplied.getBody()).containsEntry("providerStatus", "PENDING");
+        assertThat(jdbc.queryForObject("SELECT status FROM sporthub.provider_profiles WHERE user_id = ?", String.class, rejectId)).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("SELECT slug FROM sporthub.shops WHERE owner_user_id = ?", String.class, rejectId)).isEqualTo(slug);
+        assertThat(jdbc.queryForList("SELECT status FROM sporthub.provider_verifications WHERE provider_user_id = ? ORDER BY created_at", String.class, rejectId))
+                .containsExactly("REJECTED", "PENDING");
     }
 
     private UUID registerProvider(RestClient client, String email, String legalName) {
-        ResponseEntity<Map> registered = post(client, "/api/auth/register/provider", Map.of("email", email,
-                "password", "correct-password", "displayName", "IT Provider", "legalName", legalName));
-        assertThat(registered.getStatusCode().value()).isEqualTo(201);
-        return UUID.fromString((String) registered.getBody().get("id"));
+        UUID userId = UUID.fromString((String) post(client, "/api/auth/register", Map.of("email", email,
+                "password", "correct-password", "displayName", "IT Provider")).getBody().get("id"));
+        ResponseEntity<Map> applied = postAs(client, "/api/profile/provider-application", Map.of("legalName", legalName), login(client, email));
+        assertThat(applied.getStatusCode().value()).isEqualTo(201);
+        return userId;
+    }
+
+    private String login(RestClient client, String email) {
+        return (String) post(client, "/api/auth/login", Map.of("email", email, "password", "correct-password"))
+                .getBody().get("accessToken");
     }
 
     private ResponseEntity<Map> postAs(RestClient client, String path, Map<String, Object> body, String token) {

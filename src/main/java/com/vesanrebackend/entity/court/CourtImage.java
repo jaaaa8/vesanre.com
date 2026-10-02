@@ -1,5 +1,6 @@
 package com.vesanrebackend.entity;
 
+import com.vesanrebackend.entity.court.Court;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -19,16 +20,16 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Hình ảnh của địa điểm.
+ * Hình ảnh của sân.
  */
 @Entity
-@Table(name = "venue_images", schema = "sporthub", uniqueConstraints = {
-        @UniqueConstraint(name = "uq_venue_images_venue_sort", columnNames = {"venue_id", "sort_order"})
+@Table(name = "court_images", schema = "sporthub", uniqueConstraints = {
+        @UniqueConstraint(name = "uq_court_images_court_sort", columnNames = {"court_id", "sort_order"})
 })
 @Getter
 @Setter
 @NoArgsConstructor
-public class VenueImage {
+public class CourtImage {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -37,9 +38,9 @@ public class VenueImage {
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "venue_id", nullable = false)
-    // Địa điểm liên quan.
-    private Venue venue;
+    @JoinColumn(name = "court_id", nullable = false)
+    // Sân liên quan.
+    private Court court;
 
     @Column(name = "storage_key", nullable = false, length = 500, unique = true)
     // Khóa lưu trữ tệp hình ảnh.

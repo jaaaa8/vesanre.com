@@ -1,4 +1,4 @@
-package com.vesanrebackend.entity;
+package com.vesanrebackend.entity.account;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;

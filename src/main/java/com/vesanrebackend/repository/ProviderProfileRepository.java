@@ -1,6 +1,6 @@
 package com.vesanrebackend.repository;
 
-import com.vesanrebackend.entity.ProviderProfile;
+import com.vesanrebackend.entity.provider.ProviderProfile;
 import com.vesanrebackend.entity.enums.ProviderStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Limit;

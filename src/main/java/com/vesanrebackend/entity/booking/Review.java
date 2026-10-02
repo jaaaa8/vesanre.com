@@ -1,6 +1,7 @@
-package com.vesanrebackend.entity;
+package com.vesanrebackend.entity.booking;
 
-import com.vesanrebackend.entity.enums.VerificationStatus;
+import com.vesanrebackend.entity.account.UserAccount;
+import com.vesanrebackend.entity.enums.ReviewStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -11,11 +12,11 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.annotations.ColumnTransformer;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -23,14 +24,14 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Hồ sơ xác minh nhà cung cấp.
+ * Đánh giá của khách hàng sau khi sử dụng sân.
  */
 @Entity
-@Table(name = "provider_verifications", schema = "sporthub")
+@Table(name = "reviews", schema = "sporthub")
 @Getter
 @Setter
 @NoArgsConstructor
-public class ProviderVerification {
+public class Review {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -38,38 +39,41 @@ public class ProviderVerification {
     // Mã định danh bản ghi.
     private UUID id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "provider_user_id", nullable = false)
-    // Nhà cung cấp được xác minh.
-    private ProviderProfile provider;
+    @OneToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "booking_id", nullable = false, unique = true)
+    // Đơn đặt sân liên quan.
+    private Booking booking;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "submitted_by", nullable = false)
-    // Người dùng gửi hồ sơ xác minh.
-    private UserAccount submittedBy;
+    @JoinColumn(name = "customer_id", nullable = false)
+    // Khách hàng đặt sân.
+    private UserAccount customer;
 
-    @Column(name = "documents", nullable = false, columnDefinition = "jsonb")
-    @ColumnTransformer(write = "?::jsonb")
-    // Tài liệu xác minh, dạng JSON.
-    private String documents;
+    @Column(name = "rating", nullable = false)
+    // Điểm đánh giá.
+    private Short rating;
+
+    @Column(name = "comment", columnDefinition = "text")
+    // Nội dung đánh giá.
+    private String comment;
+
+    @Column(name = "provider_reply", columnDefinition = "text")
+    // Phản hồi của nhà cung cấp.
+    private String providerReply;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "replied_by")
+    // Người dùng gửi phản hồi.
+    private UserAccount repliedBy;
+
+    @Column(name = "replied_at", columnDefinition = "timestamp with time zone")
+    // Thời điểm phản hồi.
+    private Instant repliedAt;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     // Trạng thái hiện tại.
-    private VerificationStatus status = VerificationStatus.PENDING;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "reviewed_by")
-    // Quản trị viên xét duyệt.
-    private UserAccount reviewedBy;
-
-    @Column(name = "reviewed_at", columnDefinition = "timestamp with time zone")
-    // Thời điểm hoàn tất xét duyệt.
-    private Instant reviewedAt;
-
-    @Column(name = "rejection_reason", columnDefinition = "text")
-    // Lý do từ chối xác minh.
-    private String rejectionReason;
+    private ReviewStatus status = ReviewStatus.PUBLISHED;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false, columnDefinition = "timestamp with time zone")

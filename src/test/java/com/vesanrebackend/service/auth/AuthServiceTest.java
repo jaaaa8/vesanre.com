@@ -1,16 +1,16 @@
 package com.vesanrebackend.service.auth;
 
 import com.vesanrebackend.dto.auth.LoginRequest;
-import com.vesanrebackend.dto.auth.ProviderRegisterRequest;
+import com.vesanrebackend.dto.auth.ProviderApplicationRequest;
 import com.vesanrebackend.dto.auth.RegisterRequest;
 import com.vesanrebackend.dto.auth.UpdateProfileRequest;
 import com.vesanrebackend.dto.auth.UserProfileResponse;
-import com.vesanrebackend.entity.ProviderProfile;
-import com.vesanrebackend.entity.ProviderVerification;
-import com.vesanrebackend.entity.Role;
-import com.vesanrebackend.entity.Shop;
-import com.vesanrebackend.entity.UserAccount;
-import com.vesanrebackend.entity.UserRole;
+import com.vesanrebackend.entity.provider.ProviderProfile;
+import com.vesanrebackend.entity.provider.ProviderVerification;
+import com.vesanrebackend.entity.account.Role;
+import com.vesanrebackend.entity.shop.Shop;
+import com.vesanrebackend.entity.account.UserAccount;
+import com.vesanrebackend.entity.account.UserRole;
 import com.vesanrebackend.entity.enums.ProviderStatus;
 import com.vesanrebackend.entity.enums.ShopStatus;
 import com.vesanrebackend.entity.enums.UserStatus;
@@ -26,6 +26,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -50,17 +51,16 @@ class AuthServiceTest {
     private final AuthService service = new AuthService(users, roles, userRoles, providerProfiles, shops, verifications, passwordEncoder);
 
     @Test
-    void registersProviderWithProfileDraftShopAndPendingVerification() {
-        stubRegistration("PROVIDER");
-        when(providerProfiles.save(any(ProviderProfile.class))).thenAnswer(invocation -> invocation.getArgument(0));
+    void applyCreatesPendingProfileDraftShopAndPendingVerification() {
+        UserAccount applicant = user("owner@example.com", UserStatus.ACTIVE, "CUSTOMER");
+        stubApplicant(applicant, null);
 
-        UserProfileResponse response = service.registerProvider(new ProviderRegisterRequest(
-                "Owner@Example.com", "correct-password", "Owner", null, "Công ty Đồng Phục", null, null, null));
+        UserProfileResponse response = service.applyProvider(applicant.getId(),
+                new ProviderApplicationRequest("Công ty Đồng Phục", null, null, null));
 
-        assertThat(response.email()).isEqualTo("Owner@Example.com");
-        assertThat(response.roles()).containsExactly("PROVIDER");
+        assertThat(response.roles()).containsExactly("CUSTOMER");
         assertThat(response.providerStatus()).isEqualTo("PENDING");
-        verify(userRoles).save(any());
+        verifyNoInteractions(userRoles);
 
         ArgumentCaptor<ProviderProfile> profile = ArgumentCaptor.forClass(ProviderProfile.class);
         verify(providerProfiles).save(profile.capture());
@@ -78,18 +78,17 @@ class AuthServiceTest {
         ArgumentCaptor<ProviderVerification> verification = ArgumentCaptor.forClass(ProviderVerification.class);
         verify(verifications).save(verification.capture());
         assertThat(verification.getValue().getProvider()).isSameAs(profile.getValue());
-        assertThat(verification.getValue().getSubmittedBy().getEmailNormalized()).isEqualTo("owner@example.com");
+        assertThat(verification.getValue().getSubmittedBy()).isSameAs(applicant);
         assertThat(verification.getValue().getStatus()).isEqualTo(VerificationStatus.PENDING);
         assertThat(verification.getValue().getDocuments()).isEqualTo("[]");
     }
 
     @Test
     void shopNameOverridesLegalNameWhenProvided() {
-        stubRegistration("PROVIDER");
-        when(providerProfiles.save(any(ProviderProfile.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        UserAccount applicant = user("owner@example.com", UserStatus.ACTIVE, "CUSTOMER");
+        stubApplicant(applicant, null);
 
-        service.registerProvider(new ProviderRegisterRequest(
-                "owner@example.com", "correct-password", "Owner", null, "Legal Co", null, "Sân Bóng A", "desc"));
+        service.applyProvider(applicant.getId(), new ProviderApplicationRequest("Legal Co", null, "Sân Bóng A", "desc"));
 
         ArgumentCaptor<Shop> shop = ArgumentCaptor.forClass(Shop.class);
         verify(shops).save(shop.capture());
@@ -98,28 +97,56 @@ class AuthServiceTest {
     }
 
     @Test
-    void registersCustomerWhenRoleIsMissingOrCustomer() {
-        stubRegistration("CUSTOMER");
+    void reapplyAfterRejectionResetsToPendingKeepsSlugAndAddsVerification() {
+        UserAccount applicant = user("owner@example.com", UserStatus.ACTIVE, "CUSTOMER");
+        ProviderProfile existing = profile(applicant, ProviderStatus.REJECTED);
+        Shop shop = new Shop();
+        shop.setName("Old");
+        shop.setSlug("old-abc123");
+        shop.setOwner(existing);
+        existing.setShop(shop);
+        existing.setVerifiedAt(Instant.parse("2026-01-01T00:00:00Z"));
+        stubApplicant(applicant, existing);
 
-        UserProfileResponse noRole = service.register(new RegisterRequest("owner@example.com", "correct-password", "Owner", null, null));
-        assertThat(noRole.roles()).containsExactly("CUSTOMER");
-        assertThat(noRole.providerStatus()).isNull();
+        UserProfileResponse response = service.applyProvider(applicant.getId(),
+                new ProviderApplicationRequest(" New Legal ", "TAX1", "New Shop", "new desc"));
 
-        service.register(new RegisterRequest("owner@example.com", "correct-password", "Owner", null, "customer"));
-        verifyNoInteractions(providerProfiles, shops, verifications);
+        assertThat(response.providerStatus()).isEqualTo("PENDING");
+        assertThat(existing.getStatus()).isEqualTo(ProviderStatus.PENDING);
+        assertThat(existing.getVerifiedAt()).isNull();
+        assertThat(existing.getLegalName()).isEqualTo("New Legal");
+        assertThat(existing.getTaxId()).isEqualTo("TAX1");
+        assertThat(shop.getName()).isEqualTo("New Shop");
+        assertThat(shop.getDescription()).isEqualTo("new desc");
+        assertThat(shop.getSlug()).isEqualTo("old-abc123");
+        verify(providerProfiles, never()).save(any());
+        verify(shops, never()).save(any());
+        ArgumentCaptor<ProviderVerification> verification = ArgumentCaptor.forClass(ProviderVerification.class);
+        verify(verifications).save(verification.capture());
+        assertThat(verification.getValue().getProvider()).isSameAs(existing);
+        assertThat(verification.getValue().getStatus()).isEqualTo(VerificationStatus.PENDING);
     }
 
     @Test
-    void rejectsProviderAndAdminOnCustomerRegistration() {
-        for (String role : new String[]{"PROVIDER", "ADMIN"}) {
-            assertThatThrownBy(() -> service.register(new RegisterRequest(
-                    "admin@example.com", "correct-password", "Admin", null, role)))
-                    .isInstanceOf(ResponseStatusException.class)
-                    .hasMessageContaining("Providers must register via /api/auth/register/provider")
-                    .extracting(error -> ((ResponseStatusException) error).getStatusCode().value())
-                    .isEqualTo(400);
+    void applyIsConflictWhenPendingVerifiedOrSuspended() {
+        for (ProviderStatus status : new ProviderStatus[]{ProviderStatus.PENDING, ProviderStatus.VERIFIED, ProviderStatus.SUSPENDED}) {
+            UserAccount applicant = user("owner@example.com", UserStatus.ACTIVE, "CUSTOMER");
+            stubApplicant(applicant, profile(applicant, status));
+
+            assertStatus(() -> service.applyProvider(applicant.getId(), new ProviderApplicationRequest("Legal", null, null, null)), 409);
         }
-        verifyNoInteractions(users, roles, userRoles, providerProfiles, shops, verifications, passwordEncoder);
+        verifyNoInteractions(shops, verifications);
+    }
+
+    @Test
+    void registerAlwaysCreatesCustomerOnly() {
+        stubRegistration("CUSTOMER");
+
+        UserProfileResponse response = service.register(new RegisterRequest("owner@example.com", "correct-password", "Owner", null));
+
+        assertThat(response.roles()).containsExactly("CUSTOMER");
+        assertThat(response.providerStatus()).isNull();
+        verifyNoInteractions(providerProfiles, shops, verifications);
     }
 
     @Test
@@ -132,7 +159,7 @@ class AuthServiceTest {
 
         assertThat(response.email()).isEqualTo("Member@Example.com");
         verify(passwordEncoder).matches("correct-password", "hashed");
-        verifyNoInteractions(providerProfiles);
+        assertThat(response.providerStatus()).isNull();
 
         when(passwordEncoder.matches("wrong-password", "hashed")).thenReturn(false);
         assertStatus(() -> service.login(new LoginRequest("member@example.com", "wrong-password")), 401);
@@ -154,34 +181,16 @@ class AuthServiceTest {
     }
 
     @Test
-    void pendingProviderGets403OnlyAfterCorrectPassword() {
-        UserAccount provider = user("owner@example.com", UserStatus.ACTIVE, "PROVIDER");
-        when(users.findByEmailNormalized("owner@example.com")).thenReturn(Optional.of(provider));
-        when(providerProfiles.findById(provider.getId())).thenReturn(Optional.of(profile(provider, ProviderStatus.PENDING)));
-        when(passwordEncoder.matches("correct-password", "hashed")).thenReturn(true);
-        when(passwordEncoder.matches("wrong-password", "hashed")).thenReturn(false);
-
-        assertThatThrownBy(() -> service.login(new LoginRequest("owner@example.com", "correct-password")))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Provider account is pending approval")
-                .extracting(error -> ((ResponseStatusException) error).getStatusCode().value())
-                .isEqualTo(403);
-        assertStatus(() -> service.login(new LoginRequest("owner@example.com", "wrong-password")), 401);
-    }
-
-    @Test
-    void rejectedAndSuspendedProvidersGetDistinctMessages() {
-        UserAccount provider = user("owner@example.com", UserStatus.ACTIVE, "PROVIDER");
-        when(users.findByEmailNormalized("owner@example.com")).thenReturn(Optional.of(provider));
+    void customerWithPendingApplicationCanLogInAndSeesStatus() {
+        UserAccount applicant = user("owner@example.com", UserStatus.ACTIVE, "CUSTOMER");
+        when(users.findByEmailNormalized("owner@example.com")).thenReturn(Optional.of(applicant));
+        when(providerProfiles.findById(applicant.getId())).thenReturn(Optional.of(profile(applicant, ProviderStatus.PENDING)));
         when(passwordEncoder.matches("correct-password", "hashed")).thenReturn(true);
 
-        when(providerProfiles.findById(provider.getId())).thenReturn(Optional.of(profile(provider, ProviderStatus.REJECTED)));
-        assertThatThrownBy(() -> service.login(new LoginRequest("owner@example.com", "correct-password")))
-                .hasMessageContaining("Provider account was rejected");
+        UserProfileResponse response = service.login(new LoginRequest("owner@example.com", "correct-password"));
 
-        when(providerProfiles.findById(provider.getId())).thenReturn(Optional.of(profile(provider, ProviderStatus.SUSPENDED)));
-        assertThatThrownBy(() -> service.login(new LoginRequest("owner@example.com", "correct-password")))
-                .hasMessageContaining("Provider account is suspended");
+        assertThat(response.roles()).containsExactly("CUSTOMER");
+        assertThat(response.providerStatus()).isEqualTo("PENDING");
     }
 
     @Test
@@ -219,6 +228,12 @@ class AuthServiceTest {
         when(users.findById(suspended.getId())).thenReturn(Optional.of(suspended));
 
         assertStatus(() -> service.profile(suspended.getId()), 403);
+    }
+
+    private void stubApplicant(UserAccount applicant, ProviderProfile existing) {
+        when(users.findById(applicant.getId())).thenReturn(Optional.of(applicant));
+        when(providerProfiles.findByIdForUpdate(applicant.getId())).thenReturn(Optional.ofNullable(existing));
+        when(providerProfiles.save(any(ProviderProfile.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     private void stubRegistration(String roleCode) {

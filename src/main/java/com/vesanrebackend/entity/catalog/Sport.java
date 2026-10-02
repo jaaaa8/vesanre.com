@@ -1,4 +1,4 @@
-package com.vesanrebackend.entity;
+package com.vesanrebackend.entity.catalog;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

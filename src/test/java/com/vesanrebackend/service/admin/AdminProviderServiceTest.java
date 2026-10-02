@@ -2,17 +2,21 @@ package com.vesanrebackend.service.admin;
 
 import com.vesanrebackend.dto.admin.AdminProviderResponse;
 import com.vesanrebackend.entity.AuditLog;
-import com.vesanrebackend.entity.ProviderProfile;
-import com.vesanrebackend.entity.ProviderVerification;
-import com.vesanrebackend.entity.Shop;
-import com.vesanrebackend.entity.UserAccount;
+import com.vesanrebackend.entity.provider.ProviderProfile;
+import com.vesanrebackend.entity.provider.ProviderVerification;
+import com.vesanrebackend.entity.account.Role;
+import com.vesanrebackend.entity.shop.Shop;
+import com.vesanrebackend.entity.account.UserAccount;
+import com.vesanrebackend.entity.account.UserRole;
 import com.vesanrebackend.entity.enums.ProviderStatus;
 import com.vesanrebackend.entity.enums.ShopStatus;
 import com.vesanrebackend.entity.enums.VerificationStatus;
 import com.vesanrebackend.repository.AuditLogRepository;
 import com.vesanrebackend.repository.ProviderProfileRepository;
 import com.vesanrebackend.repository.ProviderVerificationRepository;
+import com.vesanrebackend.repository.RoleRepository;
 import com.vesanrebackend.repository.UserAccountRepository;
+import com.vesanrebackend.repository.UserRoleRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.server.ResponseStatusException;
@@ -29,6 +33,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -38,8 +44,10 @@ class AdminProviderServiceTest {
     private final ProviderProfileRepository providerProfiles = mock(ProviderProfileRepository.class);
     private final ProviderVerificationRepository verifications = mock(ProviderVerificationRepository.class);
     private final UserAccountRepository users = mock(UserAccountRepository.class);
+    private final RoleRepository roles = mock(RoleRepository.class);
+    private final UserRoleRepository userRoles = mock(UserRoleRepository.class);
     private final AuditLogRepository auditLogs = mock(AuditLogRepository.class);
-    private final AdminProviderService service = new AdminProviderService(providerProfiles, verifications, users, auditLogs,
+    private final AdminProviderService service = new AdminProviderService(providerProfiles, verifications, users, roles, userRoles, auditLogs,
             JsonMapper.builder().build(), Clock.fixed(NOW, ZoneOffset.UTC));
 
     private final UUID adminId = UUID.randomUUID();
@@ -73,6 +81,34 @@ class AdminProviderServiceTest {
         assertThat(log.getActorUser()).isSameAs(admin);
         assertThat(log.getBeforeData()).isEqualTo("{\"status\":\"PENDING\"}");
         assertThat(log.getAfterData()).isEqualTo("{\"status\":\"VERIFIED\"}");
+    }
+
+    @Test
+    void approveGrantsProviderRoleOnceAndRejectGrantsNothing() {
+        stubPending();
+
+        service.approve(adminId, providerId);
+
+        ArgumentCaptor<UserRole> saved = ArgumentCaptor.forClass(UserRole.class);
+        verify(userRoles).save(saved.capture());
+        assertThat(saved.getValue().getId().getRoleCode()).isEqualTo("PROVIDER");
+        assertThat(saved.getValue().getId().getUserId()).isEqualTo(providerId);
+        assertThat(saved.getValue().getGrantedBy()).isSameAs(admin);
+        assertThat(profile.getUser().getUserRoles()).containsExactly(saved.getValue());
+
+        // Already holding the role: nothing more is inserted.
+        profile.setStatus(ProviderStatus.PENDING);
+        service.approve(adminId, providerId);
+        verify(userRoles, times(1)).save(any());
+    }
+
+    @Test
+    void rejectDoesNotGrantProviderRole() {
+        stubPending();
+
+        service.reject(adminId, providerId, "no");
+
+        verifyNoInteractions(userRoles, roles);
     }
 
     @Test
@@ -129,6 +165,9 @@ class AdminProviderServiceTest {
         when(providerProfiles.findByIdForUpdate(providerId)).thenReturn(Optional.of(profile));
         when(verifications.findByProviderAndStatus(providerId, VerificationStatus.PENDING)).thenReturn(Optional.of(verification));
         when(users.getReferenceById(adminId)).thenReturn(admin);
+        Role providerRole = new Role();
+        providerRole.setCode("PROVIDER");
+        when(roles.findById("PROVIDER")).thenReturn(Optional.of(providerRole));
     }
 
     private AuditLog savedAudit() {

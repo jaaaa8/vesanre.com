@@ -1,5 +1,6 @@
-package com.vesanrebackend.entity;
+package com.vesanrebackend.entity.shop;
 
+import com.vesanrebackend.entity.account.UserAccount;
 import com.vesanrebackend.entity.enums.ShopMemberRole;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;

@@ -1,5 +1,7 @@
-package com.vesanrebackend.entity;
+package com.vesanrebackend.entity.provider;
 
+import com.vesanrebackend.entity.shop.Shop;
+import com.vesanrebackend.entity.account.UserAccount;
 import com.vesanrebackend.entity.enums.ProviderStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

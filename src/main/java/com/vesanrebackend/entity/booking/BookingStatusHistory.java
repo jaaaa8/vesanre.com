@@ -1,5 +1,6 @@
-package com.vesanrebackend.entity;
+package com.vesanrebackend.entity.booking;
 
+import com.vesanrebackend.entity.account.UserAccount;
 import com.vesanrebackend.entity.enums.BookingActorType;
 import com.vesanrebackend.entity.enums.BookingStatus;
 import jakarta.persistence.Column;

@@ -1,7 +1,10 @@
 package com.vesanrebackend.entity;
 
+import com.vesanrebackend.entity.account.UserAccount;
 import com.vesanrebackend.entity.enums.ModerationActionType;
 import com.vesanrebackend.entity.enums.ModerationTargetType;
+import com.vesanrebackend.entity.shop.Shop;
+import com.vesanrebackend.entity.venue.Venue;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

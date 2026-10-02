@@ -1,6 +1,6 @@
 package com.vesanrebackend.repository;
 
-import com.vesanrebackend.entity.Shop;
+import com.vesanrebackend.entity.shop.Shop;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.UUID;

@@ -2,16 +2,20 @@ package com.vesanrebackend.service.admin;
 
 import com.vesanrebackend.dto.admin.AdminProviderResponse;
 import com.vesanrebackend.entity.AuditLog;
-import com.vesanrebackend.entity.ProviderProfile;
-import com.vesanrebackend.entity.ProviderVerification;
-import com.vesanrebackend.entity.Shop;
-import com.vesanrebackend.entity.UserAccount;
+import com.vesanrebackend.entity.provider.ProviderProfile;
+import com.vesanrebackend.entity.provider.ProviderVerification;
+import com.vesanrebackend.entity.account.Role;
+import com.vesanrebackend.entity.shop.Shop;
+import com.vesanrebackend.entity.account.UserAccount;
+import com.vesanrebackend.entity.account.UserRole;
 import com.vesanrebackend.entity.enums.ProviderStatus;
 import com.vesanrebackend.entity.enums.VerificationStatus;
 import com.vesanrebackend.repository.AuditLogRepository;
 import com.vesanrebackend.repository.ProviderProfileRepository;
 import com.vesanrebackend.repository.ProviderVerificationRepository;
+import com.vesanrebackend.repository.RoleRepository;
 import com.vesanrebackend.repository.UserAccountRepository;
+import com.vesanrebackend.repository.UserRoleRepository;
 import org.springframework.data.domain.Limit;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -31,20 +35,25 @@ import java.util.UUID;
 public class AdminProviderService {
     private static final int MAX_RESULTS = 200;
     private static final String ENTITY_TYPE = "PROVIDER_PROFILE";
+    private static final String PROVIDER = "PROVIDER";
 
     private final ProviderProfileRepository providerProfiles;
     private final ProviderVerificationRepository verifications;
     private final UserAccountRepository users;
+    private final RoleRepository roles;
+    private final UserRoleRepository userRoles;
     private final AuditLogRepository auditLogs;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
     public AdminProviderService(ProviderProfileRepository providerProfiles, ProviderVerificationRepository verifications,
-                                UserAccountRepository users, AuditLogRepository auditLogs,
-                                ObjectMapper objectMapper, Clock clock) {
+                                UserAccountRepository users, RoleRepository roles, UserRoleRepository userRoles,
+                                AuditLogRepository auditLogs, ObjectMapper objectMapper, Clock clock) {
         this.providerProfiles = providerProfiles;
         this.verifications = verifications;
         this.users = users;
+        this.roles = roles;
+        this.userRoles = userRoles;
         this.auditLogs = auditLogs;
         this.objectMapper = objectMapper;
         this.clock = clock;
@@ -73,6 +82,7 @@ public class AdminProviderService {
         profile.setStatus(ProviderStatus.VERIFIED);
         profile.setVerifiedAt(now);
         review(verification, VerificationStatus.APPROVED, adminId, now, null);
+        grantProviderRole(profile.getUser(), adminId);
         audit(adminId, "PROVIDER_APPROVED", providerId, Map.of("status", "PENDING"), Map.of("status", "VERIFIED"));
         return toResponse(profile, verification);
     }
@@ -104,6 +114,21 @@ public class AdminProviderService {
     private ProviderVerification pendingVerification(UUID providerId) {
         return verifications.findByProviderAndStatus(providerId, VerificationStatus.PENDING)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Provider has no pending verification"));
+    }
+
+    private void grantProviderRole(UserAccount user, UUID adminId) {
+        if (user.getUserRoles().stream().anyMatch(userRole -> PROVIDER.equals(userRole.getRole().getCode()))) {
+            return;
+        }
+        Role role = roles.findById(PROVIDER)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Role seed is missing"));
+        UserRole userRole = new UserRole();
+        userRole.setId(new UserRole.UserRoleId(user.getId(), PROVIDER));
+        userRole.setUser(user);
+        userRole.setRole(role);
+        userRole.setGrantedBy(users.getReferenceById(adminId));
+        userRoles.save(userRole);
+        user.getUserRoles().add(userRole);
     }
 
     private void review(ProviderVerification verification, VerificationStatus status, UUID adminId, Instant now, String reason) {

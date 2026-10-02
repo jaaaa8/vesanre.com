@@ -1,6 +1,6 @@
 package com.vesanrebackend.repository;
 
-import com.vesanrebackend.entity.UserAccount;
+import com.vesanrebackend.entity.account.UserAccount;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 

@@ -1,6 +1,6 @@
 package com.vesanrebackend.repository;
 
-import com.vesanrebackend.entity.ProviderVerification;
+import com.vesanrebackend.entity.provider.ProviderVerification;
 import com.vesanrebackend.entity.enums.VerificationStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;

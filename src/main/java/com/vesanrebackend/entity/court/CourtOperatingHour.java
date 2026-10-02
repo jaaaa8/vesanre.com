@@ -1,5 +1,6 @@
 package com.vesanrebackend.entity;
 
+import com.vesanrebackend.entity.court.Court;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
 import jakarta.persistence.EmbeddedId;
@@ -16,21 +17,22 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.io.Serializable;
+import java.time.LocalTime;
 import java.util.UUID;
 
 /**
- * Liên kết môn thể thao được sân hỗ trợ.
+ * Giờ hoạt động của sân theo ngày trong tuần.
  */
 @Entity
-@Table(name = "court_sports", schema = "sporthub")
+@Table(name = "court_operating_hours", schema = "sporthub")
 @Getter
 @Setter
 @NoArgsConstructor
-public class CourtSport {
+public class CourtOperatingHour {
 
     @EmbeddedId
     // Mã định danh bản ghi.
-    private CourtSportId id = new CourtSportId();
+    private CourtOperatingHourId id = new CourtOperatingHourId();
 
     @MapsId("courtId")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -38,15 +40,17 @@ public class CourtSport {
     // Sân liên quan.
     private Court court;
 
-    @MapsId("sportId")
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "sport_id", nullable = false)
-    // Môn thể thao được liên kết.
-    private Sport sport;
+    @Column(name = "opens_at")
+    // Giờ mở cửa.
+    private LocalTime opensAt;
 
-    @Column(name = "is_primary", nullable = false)
-    // Cho biết đây là môn thể thao chính.
-    private Boolean isPrimary = Boolean.FALSE;
+    @Column(name = "closes_at")
+    // Giờ đóng cửa.
+    private LocalTime closesAt;
+
+    @Column(name = "is_closed", nullable = false)
+    // Cho biết sân đóng cửa trong ngày.
+    private Boolean isClosed = Boolean.FALSE;
 
     @Embeddable
     @Getter
@@ -54,13 +58,14 @@ public class CourtSport {
     @NoArgsConstructor
     @AllArgsConstructor
     @EqualsAndHashCode
-    public static class CourtSportId implements Serializable {
+    public static class CourtOperatingHourId implements Serializable {
         @Column(name = "court_id", nullable = false)
         // Mã sân trong khóa ghép.
         private UUID courtId;
 
-        @Column(name = "sport_id", nullable = false)
-        // Mã môn thể thao trong khóa ghép.
-        private UUID sportId;
+        @Column(name = "weekday", nullable = false)
+        // Ngày trong tuần theo quy ước hệ thống.
+        // 0 = Thứ Hai … 6 = Chủ Nhật, tức DayOfWeek.getValue() - 1.
+        private Short weekday;
     }
 }
