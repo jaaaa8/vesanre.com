@@ -2,6 +2,7 @@ package com.vesanrebackend.entity.booking;
 
 import com.vesanrebackend.entity.payment.PaymentIntent;
 import com.vesanrebackend.entity.payment.RefundRequest;
+import com.vesanrebackend.entity.court.CourtScheduleBlock;
 import com.vesanrebackend.entity.account.UserAccount;
 import com.vesanrebackend.entity.enums.BookingStatus;
 import com.vesanrebackend.entity.enums.CancellationSource;

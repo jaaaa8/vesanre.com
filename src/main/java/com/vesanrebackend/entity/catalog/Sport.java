@@ -1,5 +1,6 @@
 package com.vesanrebackend.entity.catalog;
 
+import com.vesanrebackend.entity.court.CourtSport;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;

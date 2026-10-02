@@ -1,4 +1,4 @@
-package com.vesanrebackend.entity;
+package com.vesanrebackend.entity.court;
 
 import com.vesanrebackend.entity.catalog.Sport;
 import com.vesanrebackend.entity.court.Court;
