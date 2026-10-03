@@ -32,6 +32,10 @@ public class ReviewMailer {
     }
 
     public void send(String to, String subject, String message, String reason) {
+        if (to == null || to.isBlank()) {
+            log.info("Review mail skipped (no recipient) subject={}", subject);
+            return;
+        }
         String body = message + (reason == null ? "" : "\n\nLý do: " + reason) + "\n\nVesanre";
         events.publishEvent(new ReviewMail(to, subject, body));
     }

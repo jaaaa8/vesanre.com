@@ -1,7 +1,6 @@
 package com.vesanrebackend.service.admin;
 
 import com.vesanrebackend.dto.admin.AdminProviderResponse;
-import com.vesanrebackend.entity.AuditLog;
 import com.vesanrebackend.entity.provider.ProviderProfile;
 import com.vesanrebackend.entity.provider.ProviderVerification;
 import com.vesanrebackend.entity.account.Role;
@@ -11,7 +10,6 @@ import com.vesanrebackend.entity.account.UserRole;
 import com.vesanrebackend.entity.enums.ProviderStatus;
 import com.vesanrebackend.entity.enums.ShopStatus;
 import com.vesanrebackend.entity.enums.VerificationStatus;
-import com.vesanrebackend.repository.AuditLogRepository;
 import com.vesanrebackend.repository.ProviderProfileRepository;
 import com.vesanrebackend.repository.ProviderVerificationRepository;
 import com.vesanrebackend.repository.RoleRepository;
@@ -21,11 +19,11 @@ import com.vesanrebackend.service.mail.ReviewMailer;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.server.ResponseStatusException;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -35,7 +33,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
@@ -49,10 +46,10 @@ class AdminProviderServiceTest {
     private final UserAccountRepository users = mock(UserAccountRepository.class);
     private final RoleRepository roles = mock(RoleRepository.class);
     private final UserRoleRepository userRoles = mock(UserRoleRepository.class);
-    private final AuditLogRepository auditLogs = mock(AuditLogRepository.class);
+    private final AdminAudit audit = mock(AdminAudit.class);
     private final ReviewMailer mailer = mock(ReviewMailer.class);
-    private final AdminProviderService service = new AdminProviderService(providerProfiles, verifications, users, roles, userRoles, auditLogs,
-            JsonMapper.builder().build(), Clock.fixed(NOW, ZoneOffset.UTC), mailer);
+    private final AdminProviderService service = new AdminProviderService(providerProfiles, verifications, users, roles, userRoles, audit,
+            Clock.fixed(NOW, ZoneOffset.UTC), mailer);
 
     private final UUID adminId = UUID.randomUUID();
     private final UUID providerId = UUID.randomUUID();
@@ -78,13 +75,8 @@ class AdminProviderServiceTest {
         assertThat(response.shop().status()).isEqualTo("ACTIVE");
         assertThat(response.verification().status()).isEqualTo("APPROVED");
 
-        AuditLog log = savedAudit();
-        assertThat(log.getAction()).isEqualTo("PROVIDER_APPROVED");
-        assertThat(log.getEntityType()).isEqualTo("PROVIDER_PROFILE");
-        assertThat(log.getEntityId()).isEqualTo(providerId);
-        assertThat(log.getActorUser()).isSameAs(admin);
-        assertThat(log.getBeforeData()).isEqualTo("{\"status\":\"PENDING\"}");
-        assertThat(log.getAfterData()).isEqualTo("{\"status\":\"VERIFIED\"}");
+        verify(audit).record(adminId, "PROVIDER_APPROVED", "PROVIDER_PROFILE", providerId, Map.of("status", "PENDING"),
+                Map.of("status", "VERIFIED"));
     }
 
     @Test
@@ -130,10 +122,8 @@ class AdminProviderServiceTest {
         assertThat(shop.getStatus()).isEqualTo(ShopStatus.DRAFT);
         assertThat(response.status()).isEqualTo("REJECTED");
 
-        AuditLog log = savedAudit();
-        assertThat(log.getAction()).isEqualTo("PROVIDER_REJECTED");
-        // Reason goes through Jackson, so quotes are escaped instead of breaking the JSON.
-        assertThat(log.getAfterData()).isEqualTo("{\"status\":\"REJECTED\",\"reason\":\"Tax id \\\"x\\\" is invalid\"}");
+        verify(audit).record(adminId, "PROVIDER_REJECTED", "PROVIDER_PROFILE", providerId, Map.of("status", "PENDING"),
+                Map.of("status", "REJECTED", "reason", "Tax id \"x\" is invalid"));
     }
 
     @Test
@@ -155,7 +145,7 @@ class AdminProviderServiceTest {
 
         assertStatus(() -> service.approve(adminId, providerId), 409, "Provider is not pending");
         assertStatus(() -> service.reject(adminId, providerId, "no"), 409, "Provider is not pending");
-        verify(auditLogs, never()).save(any());
+        verifyNoInteractions(audit);
         verifyNoInteractions(mailer);
     }
 
@@ -175,7 +165,7 @@ class AdminProviderServiceTest {
         assertStatus(() -> service.approve(adminId, providerId), 409, "Provider has no pending verification");
         assertStatus(() -> service.reject(adminId, providerId, "no"), 409, "Provider has no pending verification");
         assertThat(profile.getStatus()).isEqualTo(ProviderStatus.PENDING);
-        verify(auditLogs, never()).save(any());
+        verifyNoInteractions(audit);
     }
 
     private void stubPending() {
@@ -185,12 +175,6 @@ class AdminProviderServiceTest {
         Role providerRole = new Role();
         providerRole.setCode("PROVIDER");
         when(roles.findById("PROVIDER")).thenReturn(Optional.of(providerRole));
-    }
-
-    private AuditLog savedAudit() {
-        ArgumentCaptor<AuditLog> captor = ArgumentCaptor.forClass(AuditLog.class);
-        verify(auditLogs).save(captor.capture());
-        return captor.getValue();
     }
 
     private void assertStatus(Runnable call, int status, String reason) {

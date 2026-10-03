@@ -1,6 +1,7 @@
 # Ghi chú: chống brute force cho đăng nhập
 
 > Task riêng, chưa làm. Tách ra từ việc gộp đăng ký provider vào tài khoản chung (2026-10-03).
+> Làm cùng đợt với [refresh token bằng cookie HttpOnly](refresh-token-note.md): rate limit áp cho cả `POST /api/auth/refresh`.
 
 ## Hiện trạng
 

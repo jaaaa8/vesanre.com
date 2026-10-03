@@ -1,10 +1,12 @@
 package com.vesanrebackend.controller.admin;
 
 import com.vesanrebackend.AdminApiTestSupport;
+import com.vesanrebackend.service.mail.ReviewMailer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mail.SimpleMailMessage;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.web.client.RestClient;
 
 import javax.sql.DataSource;
@@ -18,8 +20,15 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 class AdminReviewIntegrationTest extends AdminApiTestSupport {
+    @MockitoSpyBean
+    private ReviewMailer mailer;
+
     @Test
     void venueFullCycleWithAuditAndMails() throws Exception {
         RestClient client = client();
@@ -65,8 +74,8 @@ class AdminReviewIntegrationTest extends AdminApiTestSupport {
                 .getStatusCode().value()).isEqualTo(409);
         assertThat(post(client, "/api/admin/venues/" + UUID.randomUUID() + "/approve", Map.of(), admin.token())
                 .getStatusCode().value()).isEqualTo(404);
-        Thread.sleep(300);
-        assertThat(mailsTo(provider.email())).hasSize(4);
+        // send() runs inside the request, so counting calls needs no waiting: the 409/404 paths never reached the mailer.
+        verify(mailer, times(4)).send(eq(provider.email()), any(), any(), any());
     }
 
     @Test
@@ -190,7 +199,7 @@ class AdminReviewIntegrationTest extends AdminApiTestSupport {
             }
             CompletableFuture<ResponseEntity<Map>> approval = CompletableFuture.supplyAsync(() ->
                     post(client, "/api/admin/change-requests/" + requestId + "/approve", Map.of(), admin.token()));
-            Thread.sleep(500);
+            awaitLockWaiter();
             assertThat(approval).isNotDone();
             suspend.commit();
             assertThat(approval.get(10, TimeUnit.SECONDS).getStatusCode().value()).isEqualTo(200);
@@ -216,7 +225,7 @@ class AdminReviewIntegrationTest extends AdminApiTestSupport {
             }
             CompletableFuture<ResponseEntity<Map>> edit = CompletableFuture.supplyAsync(() ->
                     patch(client, "/api/provider/venues/" + venueId, Map.of("description", "Mo ta moi"), provider.token()));
-            Thread.sleep(500);
+            awaitLockWaiter();
             assertThat(edit).isNotDone();
             suspend.commit();
             assertThat(edit.get(10, TimeUnit.SECONDS).getStatusCode().value()).isEqualTo(200);
@@ -248,12 +257,35 @@ class AdminReviewIntegrationTest extends AdminApiTestSupport {
             }
             CompletableFuture<ResponseEntity<Map>> cancel = CompletableFuture.supplyAsync(() ->
                     post(client, "/api/provider/change-requests/" + requestId + "/cancel", Map.of(), provider.token()));
-            Thread.sleep(500);
+            awaitLockWaiter();
             assertThat(cancel).isNotDone();
             approve.commit();
             assertThat(cancel.get(10, TimeUnit.SECONDS).getStatusCode().value()).isEqualTo(409);
         }
         assertThat(jdbc.queryForObject("SELECT status FROM sporthub.catalog_change_requests WHERE id = ?::uuid", String.class, requestId))
                 .isEqualTo("APPROVED");
+    }
+
+    // Same as the venue case: Shop has no @Version either, so without @DynamicUpdate the provider's full-row UPDATE restores ACTIVE.
+    @Test
+    void providerShopEditDoesNotUndoAConcurrentSuspend() throws Exception {
+        RestClient client = client();
+        Provider provider = verifiedProvider(); // shop is ACTIVE
+
+        try (Connection suspend = dataSource.getConnection()) {
+            suspend.setAutoCommit(false);
+            try (PreparedStatement ps = suspend.prepareStatement("UPDATE sporthub.shops SET status = 'SUSPENDED' WHERE owner_user_id = ?")) {
+                ps.setObject(1, provider.userId());
+                ps.executeUpdate(); // holds the row lock until commit
+            }
+            CompletableFuture<ResponseEntity<Map>> edit = CompletableFuture.supplyAsync(() ->
+                    patch(client, "/api/provider/shop", Map.of("description", "Mo ta shop moi"), provider.token()));
+            awaitLockWaiter();
+            assertThat(edit).isNotDone();
+            suspend.commit();
+            assertThat(edit.get(10, TimeUnit.SECONDS).getStatusCode().value()).isEqualTo(200);
+        }
+        assertThat(jdbc.queryForMap("SELECT status, description FROM sporthub.shops WHERE owner_user_id = ?", provider.userId()))
+                .containsEntry("status", "SUSPENDED").containsEntry("description", "Mo ta shop moi");
     }
 }

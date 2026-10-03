@@ -107,6 +107,19 @@ public abstract class AdminApiTestSupport {
         return mailsTo(email);
     }
 
+    // Proves a request is blocked on a row lock (instead of sleeping and hoping): some backend is waiting on a Lock.
+    protected void awaitLockWaiter() throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < deadline) {
+            if (jdbc.queryForObject("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()",
+                    Integer.class) > 0) {
+                return;
+            }
+            Thread.sleep(20);
+        }
+        throw new AssertionError("no backend is waiting on a row lock");
+    }
+
     protected Map<String, Object> venueBody(String name) {
         return Map.of("name", name, "addressLine", "1 Le Loi", "district", "Quan 1", "city", "HCM",
                 "latitude", 10.5, "longitude", 106.7);

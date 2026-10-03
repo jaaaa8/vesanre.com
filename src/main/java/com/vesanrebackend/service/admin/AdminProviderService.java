@@ -2,7 +2,6 @@ package com.vesanrebackend.service.admin;
 
 import com.vesanrebackend.dto.admin.AdminProviderResponse;
 import com.vesanrebackend.dto.admin.PageResponse;
-import com.vesanrebackend.entity.AuditLog;
 import com.vesanrebackend.entity.provider.ProviderProfile;
 import com.vesanrebackend.entity.provider.ProviderVerification;
 import com.vesanrebackend.entity.account.Role;
@@ -12,7 +11,6 @@ import com.vesanrebackend.entity.account.UserRole;
 import com.vesanrebackend.entity.enums.ProviderStatus;
 import com.vesanrebackend.entity.enums.ShopStatus;
 import com.vesanrebackend.entity.enums.VerificationStatus;
-import com.vesanrebackend.repository.AuditLogRepository;
 import com.vesanrebackend.repository.ProviderProfileRepository;
 import com.vesanrebackend.repository.ProviderVerificationRepository;
 import com.vesanrebackend.repository.RoleRepository;
@@ -25,7 +23,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
-import tools.jackson.databind.ObjectMapper;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -44,22 +41,20 @@ public class AdminProviderService {
     private final UserAccountRepository users;
     private final RoleRepository roles;
     private final UserRoleRepository userRoles;
-    private final AuditLogRepository auditLogs;
-    private final ObjectMapper objectMapper;
+    private final AdminAudit audit;
     private final Clock clock;
     private final ReviewMailer mailer;
 
     public AdminProviderService(ProviderProfileRepository providerProfiles, ProviderVerificationRepository verifications,
                                 UserAccountRepository users, RoleRepository roles, UserRoleRepository userRoles,
-                                AuditLogRepository auditLogs, ObjectMapper objectMapper, Clock clock,
+                                AdminAudit audit, Clock clock,
                                 ReviewMailer mailer) {
         this.providerProfiles = providerProfiles;
         this.verifications = verifications;
         this.users = users;
         this.roles = roles;
         this.userRoles = userRoles;
-        this.auditLogs = auditLogs;
-        this.objectMapper = objectMapper;
+        this.audit = audit;
         this.clock = clock;
         this.mailer = mailer;
     }
@@ -87,7 +82,7 @@ public class AdminProviderService {
         profile.setVerifiedAt(now);
         review(verification, VerificationStatus.APPROVED, adminId, now, null);
         grantProviderRole(profile.getUser(), adminId);
-        audit(adminId, "PROVIDER_APPROVED", providerId, Map.of("status", "PENDING"), Map.of("status", "VERIFIED"));
+        audit.record(adminId, "PROVIDER_APPROVED", ENTITY_TYPE, providerId, Map.of("status", "PENDING"), Map.of("status", "VERIFIED"));
         mailer.send(profile.getUser().getEmail(), "[Vesanre] Đơn đăng ký nhà cung cấp đã được duyệt",
                 "Đơn đăng ký nhà cung cấp của bạn đã được duyệt. Bạn có thể đăng nhập lại để quản lý cửa hàng.", null);
         return toResponse(profile, verification);
@@ -103,7 +98,7 @@ public class AdminProviderService {
         Map<String, Object> after = new LinkedHashMap<>();
         after.put("status", "REJECTED");
         after.put("reason", reason);
-        audit(adminId, "PROVIDER_REJECTED", providerId, Map.of("status", "PENDING"), after);
+        audit.record(adminId, "PROVIDER_REJECTED", ENTITY_TYPE, providerId, Map.of("status", "PENDING"), after);
         mailer.send(profile.getUser().getEmail(), "[Vesanre] Đơn đăng ký nhà cung cấp bị từ chối",
                 "Đơn đăng ký nhà cung cấp của bạn đã bị từ chối.", reason);
         return toResponse(profile, verification);
@@ -144,17 +139,6 @@ public class AdminProviderService {
         verification.setReviewedBy(users.getReferenceById(adminId));
         verification.setReviewedAt(now);
         verification.setRejectionReason(reason);
-    }
-
-    private void audit(UUID adminId, String action, UUID providerId, Map<String, Object> before, Map<String, Object> after) {
-        AuditLog log = new AuditLog();
-        log.setActorUser(users.getReferenceById(adminId));
-        log.setAction(action);
-        log.setEntityType(ENTITY_TYPE);
-        log.setEntityId(providerId);
-        log.setBeforeData(objectMapper.writeValueAsString(before));
-        log.setAfterData(objectMapper.writeValueAsString(after));
-        auditLogs.save(log);
     }
 
     private AdminProviderResponse toResponse(ProviderProfile profile, ProviderVerification verification) {
