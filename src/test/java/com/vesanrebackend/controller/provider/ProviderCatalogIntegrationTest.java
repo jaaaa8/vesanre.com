@@ -1,5 +1,13 @@
 package com.vesanrebackend.controller.provider;
 
+import com.vesanrebackend.service.storage.ImageStorage;
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -7,6 +15,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 import java.util.List;
@@ -14,6 +23,12 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Shared base for the provider catalog API tests (Tasks 3-7 add their tests here). Real Tomcat + PostgreSQL.
@@ -445,6 +460,216 @@ class ProviderCatalogIntegrationTest {
             out.put((String) overrides[i], overrides[i + 1]);
         }
         return out;
+    }
+
+    static final byte[] JPEG = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0};
+
+    @MockitoBean
+    private ImageStorage storage;
+
+    @BeforeEach
+    void fakeStorage() {
+        when(storage.upload(any(), anyString())).thenAnswer(inv -> inv.getArgument(1) + "/" + UUID.randomUUID());
+        when(storage.url(anyString())).thenAnswer(inv -> "https://img.test/" + inv.getArgument(0));
+    }
+
+    @Test
+    void venueImagesUploadLimitAndOwnership() {
+        RestClient client = client();
+        String token = verifiedProvider().token();
+        String other = verifiedProvider().token();
+        String venueId = (String) post(client, "/api/provider/venues", venueBody("San Img"), token).getBody().get("id");
+        String path = "/api/provider/venues/" + venueId + "/images";
+
+        ResponseEntity<Map> first = upload(client, HttpMethod.POST, path, "Mat tien", token);
+        assertThat(first.getStatusCode().value()).isEqualTo(201);
+        assertThat(first.getBody()).containsEntry("cover", true).containsEntry("sortOrder", 0)
+                .containsEntry("altText", "Mat tien");
+        assertThat((String) first.getBody().get("url")).startsWith("https://img.test/vesanre/venues/" + venueId + "/");
+        assertThat(upload(client, HttpMethod.POST, path, null, token).getBody())
+                .containsEntry("cover", false).containsEntry("sortOrder", 1);
+
+        List<Map> images = (List<Map>) get(client, "/api/provider/venues/" + venueId, token).getBody().get("images");
+        assertThat(images).hasSize(2);
+        assertThat(images.get(0)).containsEntry("cover", true);
+
+        // altText > 255 -> 400; another provider -> 404.
+        assertThat(upload(client, HttpMethod.POST, path, "x".repeat(256), token).getStatusCode().value()).isEqualTo(400);
+        assertThat(upload(client, HttpMethod.POST, path, null, other).getStatusCode().value()).isEqualTo(404);
+
+        // 11th image -> 409.
+        for (int i = 2; i < 10; i++) {
+            assertThat(upload(client, HttpMethod.POST, path, null, token).getStatusCode().value()).isEqualTo(201);
+        }
+        assertThat(upload(client, HttpMethod.POST, path, null, token).getStatusCode().value()).isEqualTo(409);
+    }
+
+    @Test
+    void venueImagesReorderAndDelete() {
+        RestClient client = client();
+        String token = verifiedProvider().token();
+        String other = verifiedProvider().token();
+        String venueId = (String) post(client, "/api/provider/venues", venueBody("San Img2"), token).getBody().get("id");
+        String path = "/api/provider/venues/" + venueId + "/images";
+        String a = (String) upload(client, HttpMethod.POST, path, null, token).getBody().get("id");
+        String b = (String) upload(client, HttpMethod.POST, path, null, token).getBody().get("id");
+        String c = (String) upload(client, HttpMethod.POST, path, null, token).getBody().get("id");
+
+        // Wrong set: missing, duplicate, foreign id -> 400.
+        assertThat(put(client, path, List.of(Map.of("id", a), Map.of("id", b)), token).getStatusCode().value()).isEqualTo(400);
+        assertThat(put(client, path, List.of(Map.of("id", a), Map.of("id", a), Map.of("id", b)), token).getStatusCode().value()).isEqualTo(400);
+        assertThat(put(client, path, List.of(Map.of("id", a), Map.of("id", b), Map.of("id", UUID.randomUUID().toString())), token)
+                .getStatusCode().value()).isEqualTo(400);
+        assertThat(put(client, path, List.of(Map.of("id", c), Map.of("id", a), Map.of("id", b)), other).getStatusCode().value()).isEqualTo(404);
+
+        // c, a, b -> c is cover; altText updated; repeatable.
+        List<Map<String, Object>> order = List.of(Map.of("id", c, "altText", "San chinh"), Map.of("id", a), Map.of("id", b));
+        assertThat(putList(client, path, order, token).getStatusCode().value()).isEqualTo(200);
+        assertThat(putList(client, path, order, token).getBody()).hasSize(3); // repeatable
+        List<Map> images = (List<Map>) get(client, "/api/provider/venues/" + venueId, token).getBody().get("images");
+        assertThat(images).extracting(m -> m.get("id")).containsExactly(c, a, b);
+        assertThat(images.get(0)).containsEntry("cover", true).containsEntry("altText", "San chinh").containsEntry("sortOrder", 0);
+        assertThat(images.get(1)).containsEntry("cover", false);
+
+        // Delete the cover -> object deleted after commit; next one becomes cover.
+        String coverKey = keyOfVenueImage(c);
+        assertThat(delete(client, path + "/" + c, other).getStatusCode().value()).isEqualTo(404);
+        assertThat(delete(client, path + "/" + c, token).getStatusCode().value()).isEqualTo(204);
+        verify(storage, timeout(5000)).delete(coverKey);
+        images = (List<Map>) get(client, "/api/provider/venues/" + venueId, token).getBody().get("images");
+        assertThat(images).extracting(m -> m.get("id")).containsExactly(a, b);
+        assertThat(images.get(0)).containsEntry("cover", true);
+        assertThat(delete(client, path + "/" + c, token).getStatusCode().value()).isEqualTo(404);
+        // Deleting the rest leaves an empty gallery without errors.
+        assertThat(delete(client, path + "/" + a, token).getStatusCode().value()).isEqualTo(204);
+        assertThat(delete(client, path + "/" + b, token).getStatusCode().value()).isEqualTo(204);
+        assertThat((List) get(client, "/api/provider/venues/" + venueId, token).getBody().get("images")).isEmpty();
+    }
+
+    @Test
+    void courtImagesUploadReorderDelete() {
+        RestClient client = client();
+        String token = verifiedProvider().token();
+        String venueId = (String) post(client, "/api/provider/venues", venueBody("San Img3"), token).getBody().get("id");
+        String courtId = (String) post(client, "/api/provider/venues/" + venueId + "/courts", Map.of("code", "C1", "name", "Court 1",
+                "capacity", 4, "bookingStepMinutes", 30, "minBookingMinutes", 60, "maxBookingMinutes", 120), token).getBody().get("id");
+        String path = "/api/provider/courts/" + courtId + "/images";
+
+        ResponseEntity<Map> first = upload(client, HttpMethod.POST, path, null, token);
+        assertThat(first.getStatusCode().value()).isEqualTo(201);
+        assertThat((String) first.getBody().get("url")).startsWith("https://img.test/vesanre/courts/" + courtId + "/");
+        String a = (String) first.getBody().get("id");
+        String b = (String) upload(client, HttpMethod.POST, path, null, token).getBody().get("id");
+        assertThat(putList(client, path, List.of(Map.of("id", b), Map.of("id", a)), token).getStatusCode().value()).isEqualTo(200);
+        assertThat(upload(client, HttpMethod.POST, path, null, verifiedProvider().token()).getStatusCode().value()).isEqualTo(404);
+        assertThat(delete(client, path + "/" + b, token).getStatusCode().value()).isEqualTo(204);
+        List<Map> images = (List<Map>) get(client, "/api/provider/courts/" + courtId, token).getBody().get("images");
+        assertThat(images).hasSize(1).first().satisfies(i -> assertThat(i).containsEntry("id", a).containsEntry("cover", true));
+    }
+
+    @Test
+    void imageUploadRolledBackDeletesObject() {
+        RestClient client = client();
+        String token = verifiedProvider().token();
+        String venueId = (String) post(client, "/api/provider/venues", venueBody("San Img4"), token).getBody().get("id");
+        String path = "/api/provider/venues/" + venueId + "/images";
+        upload(client, HttpMethod.POST, path, null, token);
+        // Storage hands back a key that already exists -> unique storage_key fails at saveAndFlush -> 409 + rollback.
+        String existing = jdbc.queryForObject("SELECT storage_key FROM sporthub.venue_images WHERE venue_id = ?",
+                String.class, UUID.fromString(venueId));
+        when(storage.upload(any(), anyString())).thenReturn(existing);
+        assertThat(upload(client, HttpMethod.POST, path, null, token).getStatusCode().value()).isEqualTo(409);
+        verify(storage, timeout(5000)).delete(existing);
+    }
+
+    @Test
+    void oversizedUploadIsRejectedBeforeStorage() {
+        RestClient client = client();
+        String token = verifiedProvider().token();
+        String venueId = (String) post(client, "/api/provider/venues", venueBody("San Img5"), token).getBody().get("id");
+        byte[] big = new byte[5 * 1024 * 1024 + 100 * 1024];
+        System.arraycopy(JPEG, 0, big, 0, JPEG.length);
+        // Tomcat may reset the connection instead of answering 413 (spec §5); the frontend blocks files > 5MB.
+        try {
+            assertThat(upload(client, HttpMethod.POST, "/api/provider/venues/" + venueId + "/images", null, big, token)
+                    .getStatusCode().value()).isEqualTo(413);
+        } catch (ResourceAccessException reset) {
+            // accepted
+        }
+        verify(storage, never()).upload(any(), anyString());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM sporthub.venue_images WHERE venue_id = ?",
+                Integer.class, UUID.fromString(venueId))).isZero();
+    }
+
+    @Test
+    void shopLogoReplaceAndDelete() {
+        RestClient client = client();
+        Provider provider = verifiedProvider();
+        String token = provider.token();
+        assertThat(get(client, "/api/provider/shop", token).getBody().get("logoUrl")).isNull();
+
+        ResponseEntity<Map> first = upload(client, HttpMethod.PUT, "/api/provider/shop/logo", null, token);
+        assertThat(first.getStatusCode().value()).isEqualTo(200);
+        String firstUrl = (String) first.getBody().get("logoUrl");
+        assertThat(firstUrl).startsWith("https://img.test/vesanre/shops/" + first.getBody().get("id") + "/");
+        String firstKey = firstUrl.substring("https://img.test/".length());
+
+        ResponseEntity<Map> second = upload(client, HttpMethod.PUT, "/api/provider/shop/logo", null, token);
+        assertThat((String) second.getBody().get("logoUrl")).isNotEqualTo(firstUrl);
+        verify(storage, timeout(5000)).delete(firstKey);
+
+        String secondKey = ((String) second.getBody().get("logoUrl")).substring("https://img.test/".length());
+        assertThat(delete(client, "/api/provider/shop/logo", token).getStatusCode().value()).isEqualTo(204);
+        verify(storage, timeout(5000)).delete(secondKey);
+        assertThat(get(client, "/api/provider/shop", token).getBody().get("logoUrl")).isNull();
+        // No logo -> still 204.
+        assertThat(delete(client, "/api/provider/shop/logo", token).getStatusCode().value()).isEqualTo(204);
+    }
+
+    @Test
+    void deletingDraftVenueDropsVenueAndCourtImageObjects() {
+        RestClient client = client();
+        String token = verifiedProvider().token();
+        String venueId = (String) post(client, "/api/provider/venues", venueBody("San Img6"), token).getBody().get("id");
+        String courtId = (String) post(client, "/api/provider/venues/" + venueId + "/courts", Map.of("code", "C1", "name", "Court 1",
+                "capacity", 4, "bookingStepMinutes", 30, "minBookingMinutes", 60, "maxBookingMinutes", 120), token).getBody().get("id");
+        upload(client, HttpMethod.POST, "/api/provider/venues/" + venueId + "/images", null, token);
+        upload(client, HttpMethod.POST, "/api/provider/courts/" + courtId + "/images", null, token);
+        List<String> keys = jdbc.queryForList("SELECT storage_key FROM sporthub.venue_images WHERE venue_id = ?"
+                + " UNION ALL SELECT ci.storage_key FROM sporthub.court_images ci JOIN sporthub.courts c ON c.id = ci.court_id"
+                + " WHERE c.venue_id = ?", String.class, UUID.fromString(venueId), UUID.fromString(venueId));
+        assertThat(keys).hasSize(2);
+
+        assertThat(delete(client, "/api/provider/venues/" + venueId, token).getStatusCode().value()).isEqualTo(204);
+        for (String key : keys) verify(storage, timeout(5000)).delete(key);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM sporthub.court_images WHERE storage_key IN (?, ?)",
+                Integer.class, keys.get(0), keys.get(1))).isZero();
+    }
+
+    String keyOfVenueImage(String imageId) {
+        return jdbc.queryForObject("SELECT storage_key FROM sporthub.venue_images WHERE id = ?", String.class, UUID.fromString(imageId));
+    }
+
+    // 200 body of PUT images is a JSON array; the existing put(...) helper reads a Map.
+    ResponseEntity<List> putList(RestClient client, String path, Object body, String token) {
+        return client.put().uri(path).headers(h -> h.setBearerAuth(token)).body(body).retrieve().toEntity(List.class);
+    }
+
+    ResponseEntity<Map> upload(RestClient client, HttpMethod method, String path, String altText, String token) {
+        return upload(client, method, path, altText, JPEG, token);
+    }
+
+    ResponseEntity<Map> upload(RestClient client, HttpMethod method, String path, String altText, byte[] bytes, String token) {
+        MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
+        parts.add("file", new ByteArrayResource(bytes) {
+            @Override
+            public String getFilename() {
+                return "photo.jpg";
+            }
+        });
+        if (altText != null) parts.add("altText", altText);
+        return client.method(method).uri(path).headers(h -> h.setBearerAuth(token))
+                .contentType(MediaType.MULTIPART_FORM_DATA).body(parts).retrieve().toEntity(Map.class);
     }
 
     Map<String, Object> venueBody(String name) {

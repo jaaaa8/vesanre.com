@@ -2,7 +2,8 @@ package com.vesanrebackend.controller.admin;
 
 import com.vesanrebackend.security.CorsConfig;
 import com.vesanrebackend.security.SecurityConfig;
-import com.vesanrebackend.service.admin.AdminProviderService;
+import com.vesanrebackend.service.admin.AdminChangeRequestService;
+import com.vesanrebackend.service.admin.AdminVenueService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -19,58 +20,65 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(value = AdminProviderController.class, properties = {
+@WebMvcTest(value = {AdminVenueController.class, AdminChangeRequestController.class}, properties = {
         "app.security.jwt.secret=test-secret-at-least-thirty-two-bytes-long",
         "app.cors.allowed-origin=http://localhost:5173"})
 @Import({SecurityConfig.class, CorsConfig.class})
-class AdminProviderControllerSecurityTest {
-    private static final String PATH = "/api/admin/providers";
+class AdminReviewControllerSecurityTest {
+    private static final String PATH = "/api/admin/venues";
 
     @Autowired
     private MockMvc mvc;
 
     @MockitoBean
-    private AdminProviderService adminProviders;
+    private AdminVenueService adminVenues;
+
+    @MockitoBean
+    private AdminChangeRequestService adminChangeRequests;
 
     @Test
     void unauthenticatedIsUnauthorized() throws Exception {
         mvc.perform(get(PATH)).andExpect(status().isUnauthorized());
-        mvc.perform(post(PATH + "/" + UUID.randomUUID() + "/approve")).andExpect(status().isUnauthorized());
     }
 
     @Test
     void customerAndProviderAreForbiddenOnEveryEndpoint() throws Exception {
         for (String role : new String[]{"CUSTOMER", "PROVIDER"}) {
             RequestPostProcessor caller = as(role);
-            String id = UUID.randomUUID().toString();
+            String id = PATH + "/" + UUID.randomUUID();
             mvc.perform(get(PATH).with(caller)).andExpect(status().isForbidden());
-            mvc.perform(post(PATH + "/" + id + "/approve").with(caller)).andExpect(status().isForbidden());
-            mvc.perform(post(PATH + "/" + id + "/reject").with(caller)
+            mvc.perform(get(id).with(caller)).andExpect(status().isForbidden());
+            mvc.perform(post(id + "/approve").with(caller)).andExpect(status().isForbidden());
+            mvc.perform(post(id + "/reactivate").with(caller)).andExpect(status().isForbidden());
+            mvc.perform(post(id + "/reject").with(caller)
+                    .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"x\"}")).andExpect(status().isForbidden());
+            mvc.perform(post(id + "/suspend").with(caller)
                     .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"x\"}")).andExpect(status().isForbidden());
         }
     }
 
     @Test
-    void adminIsAllowed() throws Exception {
-        RequestPostProcessor admin = as("ADMIN");
-        String id = UUID.randomUUID().toString();
-        mvc.perform(get(PATH).with(admin)).andExpect(status().isOk());
-        mvc.perform(post(PATH + "/" + id + "/approve").with(admin)).andExpect(status().isOk());
-        mvc.perform(post(PATH + "/" + id + "/reject").with(admin)
-                .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"bad docs\"}")).andExpect(status().isOk());
+    void changeRequestsAreAdminOnly() throws Exception {
+        String path = "/api/admin/change-requests";
+        for (String role : new String[]{"CUSTOMER", "PROVIDER"}) {
+            RequestPostProcessor caller = as(role);
+            String id = path + "/" + UUID.randomUUID();
+            mvc.perform(get(path).with(caller)).andExpect(status().isForbidden());
+            mvc.perform(post(id + "/approve").with(caller)).andExpect(status().isForbidden());
+            mvc.perform(post(id + "/reject").with(caller)
+                    .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"x\"}")).andExpect(status().isForbidden());
+        }
+        mvc.perform(get(path + "?targetType=NOPE").with(as("ADMIN"))).andExpect(status().isBadRequest());
     }
 
     @Test
     void adminInputIsValidated() throws Exception {
         RequestPostProcessor admin = as("ADMIN");
-        String id = UUID.randomUUID().toString();
-        mvc.perform(get(PATH + "?status=NOPE").with(admin)).andExpect(status().isBadRequest());
+        String id = PATH + "/" + UUID.randomUUID();
         mvc.perform(get(PATH + "?page=-1").with(admin)).andExpect(status().isBadRequest());
         mvc.perform(get(PATH + "?size=0").with(admin)).andExpect(status().isBadRequest());
-        mvc.perform(post(PATH + "/" + id + "/reject").with(admin)
+        mvc.perform(post(id + "/reject").with(admin)
                 .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"  \"}")).andExpect(status().isBadRequest());
-        mvc.perform(post(PATH + "/" + id + "/reject").with(admin)
-                .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"" + "a".repeat(1001) + "\"}")).andExpect(status().isBadRequest());
     }
 
     private RequestPostProcessor as(String role) {

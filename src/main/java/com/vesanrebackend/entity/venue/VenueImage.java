@@ -1,5 +1,6 @@
 package com.vesanrebackend.entity.venue;
 
+import com.vesanrebackend.entity.ImageRow;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -28,7 +29,7 @@ import java.util.UUID;
 @Getter
 @Setter
 @NoArgsConstructor
-public class VenueImage {
+public class VenueImage implements ImageRow {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

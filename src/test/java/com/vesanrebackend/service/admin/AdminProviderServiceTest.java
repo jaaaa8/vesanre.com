@@ -17,6 +17,7 @@ import com.vesanrebackend.repository.ProviderVerificationRepository;
 import com.vesanrebackend.repository.RoleRepository;
 import com.vesanrebackend.repository.UserAccountRepository;
 import com.vesanrebackend.repository.UserRoleRepository;
+import com.vesanrebackend.service.mail.ReviewMailer;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.server.ResponseStatusException;
@@ -31,6 +32,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -47,8 +50,9 @@ class AdminProviderServiceTest {
     private final RoleRepository roles = mock(RoleRepository.class);
     private final UserRoleRepository userRoles = mock(UserRoleRepository.class);
     private final AuditLogRepository auditLogs = mock(AuditLogRepository.class);
+    private final ReviewMailer mailer = mock(ReviewMailer.class);
     private final AdminProviderService service = new AdminProviderService(providerProfiles, verifications, users, roles, userRoles, auditLogs,
-            JsonMapper.builder().build(), Clock.fixed(NOW, ZoneOffset.UTC));
+            JsonMapper.builder().build(), Clock.fixed(NOW, ZoneOffset.UTC), mailer);
 
     private final UUID adminId = UUID.randomUUID();
     private final UUID providerId = UUID.randomUUID();
@@ -133,6 +137,18 @@ class AdminProviderServiceTest {
     }
 
     @Test
+    void approveAndRejectMailTheApplicant() {
+        stubPending();
+        service.approve(adminId, providerId);
+        verify(mailer).send(eq("provider@example.com"), eq("[Vesanre] Đơn đăng ký nhà cung cấp đã được duyệt"), any(), isNull());
+
+        profile.setStatus(ProviderStatus.PENDING);
+        verification.setStatus(VerificationStatus.PENDING);
+        service.reject(adminId, providerId, "Thiếu giấy tờ");
+        verify(mailer).send(eq("provider@example.com"), eq("[Vesanre] Đơn đăng ký nhà cung cấp bị từ chối"), any(), eq("Thiếu giấy tờ"));
+    }
+
+    @Test
     void notPendingIsConflict() {
         profile.setStatus(ProviderStatus.VERIFIED);
         when(providerProfiles.findByIdForUpdate(providerId)).thenReturn(Optional.of(profile));
@@ -140,6 +156,7 @@ class AdminProviderServiceTest {
         assertStatus(() -> service.approve(adminId, providerId), 409, "Provider is not pending");
         assertStatus(() -> service.reject(adminId, providerId, "no"), 409, "Provider is not pending");
         verify(auditLogs, never()).save(any());
+        verifyNoInteractions(mailer);
     }
 
     @Test

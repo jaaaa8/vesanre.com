@@ -7,6 +7,7 @@ import com.vesanrebackend.security.CorsConfig;
 import com.vesanrebackend.security.SecurityConfig;
 import com.vesanrebackend.service.provider.ProviderChangeRequestService;
 import com.vesanrebackend.service.provider.ProviderCourtService;
+import com.vesanrebackend.service.provider.ProviderImageService;
 import com.vesanrebackend.service.provider.ProviderShopService;
 import com.vesanrebackend.service.provider.ProviderVenueService;
 import org.junit.jupiter.api.Test;
@@ -14,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -21,13 +23,15 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.util.UUID;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(value = {ProviderShopController.class, ProviderVenueController.class, ProviderCourtController.class,
-        CatalogController.class}, properties = {
+        ProviderImageController.class, CatalogController.class}, properties = {
         "app.security.jwt.secret=test-secret-at-least-thirty-two-bytes-long",
         "app.cors.allowed-origin=http://localhost:5173"})
 @Import({SecurityConfig.class, CorsConfig.class})
@@ -48,6 +52,8 @@ class ProviderCatalogControllerSecurityTest {
     @MockitoBean
     private ProviderCourtService courts;
     @MockitoBean
+    private ProviderImageService images;
+    @MockitoBean
     private SportRepository sports;
     @MockitoBean
     private AmenityRepository amenities;
@@ -58,6 +64,10 @@ class ProviderCatalogControllerSecurityTest {
         mvc.perform(post("/api/provider/change-requests/" + ID + "/cancel")).andExpect(status().isUnauthorized());
         mvc.perform(put("/api/provider/courts/" + ID + "/sports").contentType(MediaType.APPLICATION_JSON).content("[]"))
                 .andExpect(status().isUnauthorized());
+        mvc.perform(multipart("/api/provider/venues/" + ID + "/images").file(new MockMultipartFile("file", new byte[]{1})))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(delete("/api/provider/courts/" + ID + "/images/" + ID)).andExpect(status().isUnauthorized());
+        mvc.perform(delete("/api/provider/shop/logo")).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -68,6 +78,10 @@ class ProviderCatalogControllerSecurityTest {
             mvc.perform(post("/api/provider/change-requests/" + ID + "/cancel").with(caller)).andExpect(status().isForbidden());
             mvc.perform(put("/api/provider/courts/" + ID + "/sports").with(caller)
                     .contentType(MediaType.APPLICATION_JSON).content("[]")).andExpect(status().isForbidden());
+            mvc.perform(multipart("/api/provider/venues/" + ID + "/images").file(new MockMultipartFile("file", new byte[]{1}))
+                    .with(caller)).andExpect(status().isForbidden());
+            mvc.perform(delete("/api/provider/courts/" + ID + "/images/" + ID).with(caller)).andExpect(status().isForbidden());
+            mvc.perform(delete("/api/provider/shop/logo").with(caller)).andExpect(status().isForbidden());
         }
     }
 

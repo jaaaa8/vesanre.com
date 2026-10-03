@@ -137,10 +137,14 @@ class AuthFlowIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM sporthub.user_roles WHERE user_id = ? AND role_code = 'PROVIDER'",
                 Integer.class, approveId)).isZero();
 
-        ResponseEntity<List> pending = client.get().uri("/api/admin/providers")
-                .headers(headers -> headers.setBearerAuth(adminToken)).retrieve().toEntity(List.class);
-        assertThat(pending.getStatusCode().value()).isEqualTo(200);
-        List<Map<String, Object>> items = pending.getBody();
+        List<Map<String, Object>> items = new java.util.ArrayList<>();
+        for (int page = 0; ; page++) {
+            ResponseEntity<Map> response = client.get().uri("/api/admin/providers?size=100&page=" + page)
+                    .headers(headers -> headers.setBearerAuth(adminToken)).retrieve().toEntity(Map.class);
+            assertThat(response.getStatusCode().value()).isEqualTo(200);
+            items.addAll((List<Map<String, Object>>) response.getBody().get("items"));
+            if (page + 1 >= ((Number) response.getBody().get("totalPages")).intValue()) break;
+        }
         assertThat(items).extracting(item -> item.get("userId")).contains(approveId.toString(), rejectId.toString());
         Map<String, Object> item = items.stream().filter(i -> approveId.toString().equals(i.get("userId"))).findFirst().orElseThrow();
         assertThat(item).containsEntry("email", approveEmail).containsEntry("status", "PENDING");

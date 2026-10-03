@@ -9,7 +9,7 @@ public record CourtDetailResponse(UUID id, UUID venueId, String code, String nam
                                   Integer capacity, Integer bookingStepMinutes, Integer minBookingMinutes,
                                   Integer maxBookingMinutes, String status, List<SportItem> sports,
                                   List<AmenityItem> amenities, List<OperatingHourItem> operatingHours,
-                                  List<PricingRuleItem> pricingRules) {
+                                  List<PricingRuleItem> pricingRules, List<ImageResponse> images) {
     public record SportItem(UUID sportId, String code, String name, boolean primary) {
     }
 

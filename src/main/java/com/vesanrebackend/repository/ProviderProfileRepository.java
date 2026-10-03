@@ -3,13 +3,13 @@ package com.vesanrebackend.repository;
 import com.vesanrebackend.entity.provider.ProviderProfile;
 import com.vesanrebackend.entity.enums.ProviderStatus;
 import jakarta.persistence.LockModeType;
-import org.springframework.data.domain.Limit;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -19,7 +19,8 @@ public interface ProviderProfileRepository extends JpaRepository<ProviderProfile
     @Query("select p from ProviderProfile p where p.userId = :userId")
     Optional<ProviderProfile> findByIdForUpdate(@Param("userId") UUID userId);
 
-    @Query("select p from ProviderProfile p join fetch p.user left join fetch p.shop "
-            + "where p.status = :status order by p.createdAt desc")
-    List<ProviderProfile> findByStatusWithDetails(@Param("status") ProviderStatus status, Limit limit);
+    // Explicit count: Spring Data cannot derive one from a fetch-join query.
+    @Query(value = "select p from ProviderProfile p join fetch p.user left join fetch p.shop where p.status = :status",
+            countQuery = "select count(p) from ProviderProfile p where p.status = :status")
+    Page<ProviderProfile> findByStatusWithDetails(@Param("status") ProviderStatus status, Pageable pageable);
 }

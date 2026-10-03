@@ -48,11 +48,12 @@ public class ProviderCourtService {
     private final CourtPricingRuleRepository pricingRules;
     private final SportRepository sports;
     private final AmenityRepository amenities;
+    private final ProviderImageService images;
 
     public ProviderCourtService(CourtRepository courts, VenueRepository venues, CourtSportRepository courtSports,
                                 CourtAmenityRepository courtAmenities, CourtOperatingHourRepository operatingHours,
                                 CourtPricingRuleRepository pricingRules, SportRepository sports,
-                                AmenityRepository amenities) {
+                                AmenityRepository amenities, ProviderImageService images) {
         this.courts = courts;
         this.venues = venues;
         this.courtSports = courtSports;
@@ -61,6 +62,7 @@ public class ProviderCourtService {
         this.pricingRules = pricingRules;
         this.sports = sports;
         this.amenities = amenities;
+        this.images = images;
     }
 
     @Transactional
@@ -263,7 +265,7 @@ public class ProviderCourtService {
         }
     }
 
-    CourtDetailResponse toDetail(Court c) {
+    public CourtDetailResponse toDetail(Court c) {
         return new CourtDetailResponse(c.getId(), c.getVenue().getId(), c.getCode(), c.getName(), c.getDescription(),
                 c.getCapacity(), c.getBookingStepMinutes(), c.getMinBookingMinutes(), c.getMaxBookingMinutes(),
                 c.getStatus().name(),
@@ -283,7 +285,8 @@ public class ProviderCourtService {
                         .map(r -> new CourtDetailResponse.PricingRuleItem(r.getId(), r.getWeekday(), r.getStartMinute(),
                                 r.getEndMinute(), r.getPricePerHour(), r.getCurrency()))
                         .sorted(Comparator.comparingInt(CourtDetailResponse.PricingRuleItem::weekday)
-                                .thenComparingInt(CourtDetailResponse.PricingRuleItem::startMinute)).toList());
+                                .thenComparingInt(CourtDetailResponse.PricingRuleItem::startMinute)).toList(),
+                images.ofCourt(c.getId()));
     }
 
     private static String required(String value, String field) {

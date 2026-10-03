@@ -20,6 +20,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
@@ -32,6 +33,7 @@ import java.util.UUID;
  * Địa điểm hoặc chi nhánh thuộc cửa hàng.
  */
 @Entity
+@DynamicUpdate
 @Table(name = "venues", schema = "sporthub", uniqueConstraints = {
         @UniqueConstraint(name = "uq_venues_shop_slug", columnNames = {"shop_id", "slug"})
 })

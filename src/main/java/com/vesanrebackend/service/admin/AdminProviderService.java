@@ -1,6 +1,7 @@
 package com.vesanrebackend.service.admin;
 
 import com.vesanrebackend.dto.admin.AdminProviderResponse;
+import com.vesanrebackend.dto.admin.PageResponse;
 import com.vesanrebackend.entity.AuditLog;
 import com.vesanrebackend.entity.provider.ProviderProfile;
 import com.vesanrebackend.entity.provider.ProviderVerification;
@@ -17,7 +18,9 @@ import com.vesanrebackend.repository.ProviderVerificationRepository;
 import com.vesanrebackend.repository.RoleRepository;
 import com.vesanrebackend.repository.UserAccountRepository;
 import com.vesanrebackend.repository.UserRoleRepository;
-import org.springframework.data.domain.Limit;
+import com.vesanrebackend.service.mail.ReviewMailer;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,13 +31,11 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 @Service
 public class AdminProviderService {
-    private static final int MAX_RESULTS = 200;
     private static final String ENTITY_TYPE = "PROVIDER_PROFILE";
     private static final String PROVIDER = "PROVIDER";
 
@@ -46,10 +47,12 @@ public class AdminProviderService {
     private final AuditLogRepository auditLogs;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final ReviewMailer mailer;
 
     public AdminProviderService(ProviderProfileRepository providerProfiles, ProviderVerificationRepository verifications,
                                 UserAccountRepository users, RoleRepository roles, UserRoleRepository userRoles,
-                                AuditLogRepository auditLogs, ObjectMapper objectMapper, Clock clock) {
+                                AuditLogRepository auditLogs, ObjectMapper objectMapper, Clock clock,
+                                ReviewMailer mailer) {
         this.providerProfiles = providerProfiles;
         this.verifications = verifications;
         this.users = users;
@@ -58,21 +61,20 @@ public class AdminProviderService {
         this.auditLogs = auditLogs;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.mailer = mailer;
     }
 
     @Transactional(readOnly = true)
-    public List<AdminProviderResponse> list(ProviderStatus status) {
-        // ponytail: capped at 200 with no paging; add Pageable + total count when a queue can exceed that.
-        List<ProviderProfile> profiles = providerProfiles.findByStatusWithDetails(status, Limit.of(MAX_RESULTS));
-        if (profiles.isEmpty()) {
-            return List.of();
-        }
+    public PageResponse<AdminProviderResponse> list(ProviderStatus status, Pageable pageable) {
+        Page<ProviderProfile> page = providerProfiles.findByStatusWithDetails(status, pageable);
         Map<UUID, ProviderVerification> latest = new HashMap<>();
-        for (ProviderVerification verification : verifications.findByProviderIdsNewestFirst(
-                profiles.stream().map(ProviderProfile::getUserId).toList())) {
-            latest.putIfAbsent(verification.getProvider().getUserId(), verification);
+        if (page.hasContent()) {
+            for (ProviderVerification verification : verifications.findByProviderIdsNewestFirst(
+                    page.getContent().stream().map(ProviderProfile::getUserId).toList())) {
+                latest.putIfAbsent(verification.getProvider().getUserId(), verification);
+            }
         }
-        return profiles.stream().map(profile -> toResponse(profile, latest.get(profile.getUserId()))).toList();
+        return PageResponse.of(page.map(profile -> toResponse(profile, latest.get(profile.getUserId()))));
     }
 
     @Transactional
@@ -86,6 +88,8 @@ public class AdminProviderService {
         review(verification, VerificationStatus.APPROVED, adminId, now, null);
         grantProviderRole(profile.getUser(), adminId);
         audit(adminId, "PROVIDER_APPROVED", providerId, Map.of("status", "PENDING"), Map.of("status", "VERIFIED"));
+        mailer.send(profile.getUser().getEmail(), "[Vesanre] Đơn đăng ký nhà cung cấp đã được duyệt",
+                "Đơn đăng ký nhà cung cấp của bạn đã được duyệt. Bạn có thể đăng nhập lại để quản lý cửa hàng.", null);
         return toResponse(profile, verification);
     }
 
@@ -100,6 +104,8 @@ public class AdminProviderService {
         after.put("status", "REJECTED");
         after.put("reason", reason);
         audit(adminId, "PROVIDER_REJECTED", providerId, Map.of("status", "PENDING"), after);
+        mailer.send(profile.getUser().getEmail(), "[Vesanre] Đơn đăng ký nhà cung cấp bị từ chối",
+                "Đơn đăng ký nhà cung cấp của bạn đã bị từ chối.", reason);
         return toResponse(profile, verification);
     }
 

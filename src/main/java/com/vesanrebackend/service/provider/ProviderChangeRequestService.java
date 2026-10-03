@@ -57,7 +57,8 @@ public class ProviderChangeRequestService {
 
     @Transactional
     public void cancel(UUID userId, UUID requestId) {
-        CatalogChangeRequest request = requests.findByIdAndSubmitter(requestId, userId)
+        CatalogChangeRequest request = requests.findByIdForUpdate(requestId)
+                .filter(r -> r.getSubmittedBy().getId().equals(userId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Change request not found"));
         if (request.getStatus() != ChangeRequestStatus.PENDING) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Change request is already " + request.getStatus());

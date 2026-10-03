@@ -8,7 +8,7 @@ public record VenueDetailResponse(UUID id, String slug, String name, String desc
                                   String ward, String district, String city, String province, String postalCode,
                                   BigDecimal latitude, BigDecimal longitude, String phone, String status,
                                   List<CourtItem> courts, List<AmenityItem> amenities,
-                                  PendingChangeResponse pendingChange) {
+                                  PendingChangeResponse pendingChange, List<ImageResponse> images) {
     public record CourtItem(UUID id, String code, String name, String status) {
     }
 

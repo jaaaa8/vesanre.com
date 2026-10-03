@@ -42,16 +42,19 @@ public class ProviderVenueService {
     private final CourtRepository courts;
     private final VenueAmenityRepository venueAmenities;
     private final AmenityRepository amenities;
+    private final ProviderImageService images;
 
     public ProviderVenueService(ProviderShopService shops, ProviderChangeRequestService changeRequests,
                                 VenueRepository venues, CourtRepository courts,
-                                VenueAmenityRepository venueAmenities, AmenityRepository amenities) {
+                                VenueAmenityRepository venueAmenities, AmenityRepository amenities,
+                                ProviderImageService images) {
         this.shops = shops;
         this.changeRequests = changeRequests;
         this.venues = venues;
         this.courts = courts;
         this.venueAmenities = venueAmenities;
         this.amenities = amenities;
+        this.images = images;
     }
 
     @Transactional(readOnly = true)
@@ -97,6 +100,7 @@ public class ProviderVenueService {
         if (venue.getStatus() != VenueStatus.DRAFT) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Only a DRAFT venue can be deleted");
         }
+        images.deleteAllOfVenueAfterCommit(id); // image rows go with ON DELETE CASCADE, objects after commit
         courts.deleteByVenueId(id); // courts reference the venue with ON DELETE RESTRICT
         venues.delete(venue);
         venues.flush();
@@ -202,7 +206,7 @@ public class ProviderVenueService {
     }
 
     // Also meant for admin approval (part 4): numbers may arrive as any Number from JSON.
-    static void applyImportant(Venue v, Map<String, Object> c) {
+    public static void applyImportant(Venue v, Map<String, Object> c) {
         if (c.containsKey("name")) v.setName((String) c.get("name"));
         if (c.containsKey("addressLine")) v.setAddressLine((String) c.get("addressLine"));
         if (c.containsKey("ward")) v.setWard((String) c.get("ward"));
@@ -212,6 +216,26 @@ public class ProviderVenueService {
         if (c.containsKey("postalCode")) v.setPostalCode((String) c.get("postalCode"));
         if (c.containsKey("latitude")) v.setLatitude(new BigDecimal(c.get("latitude").toString()));
         if (c.containsKey("longitude")) v.setLongitude(new BigDecimal(c.get("longitude").toString()));
+    }
+
+    // Current values of exactly the given important keys (null values kept, e.g. an empty ward).
+    public static Map<String, Object> importantValues(Venue v, Set<String> keys) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (String key : keys) {
+            out.put(key, switch (key) {
+                case "name" -> v.getName();
+                case "addressLine" -> v.getAddressLine();
+                case "ward" -> v.getWard();
+                case "district" -> v.getDistrict();
+                case "city" -> v.getCity();
+                case "province" -> v.getProvince();
+                case "postalCode" -> v.getPostalCode();
+                case "latitude" -> v.getLatitude();
+                case "longitude" -> v.getLongitude();
+                default -> throw new IllegalStateException("Unknown venue field " + key);
+            });
+        }
+        return out;
     }
 
     private static void text(Map<String, Object> out, String key, String sent, String current, boolean required) {
@@ -238,7 +262,7 @@ public class ProviderVenueService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Venue not found"));
     }
 
-    private VenueDetailResponse toDetail(Venue v) {
+    public VenueDetailResponse toDetail(Venue v) {
         return new VenueDetailResponse(v.getId(), v.getSlug(), v.getName(), v.getDescription(), v.getAddressLine(),
                 v.getWard(), v.getDistrict(), v.getCity(), v.getProvince(), v.getPostalCode(), v.getLatitude(),
                 v.getLongitude(), v.getPhone(), v.getStatus().name(),
@@ -249,7 +273,8 @@ public class ProviderVenueService {
                         .map(a -> new VenueDetailResponse.AmenityItem(a.getAmenity().getId(), a.getAmenity().getCode(),
                                 a.getAmenity().getName(), a.getDetails()))
                         .toList(),
-                changeRequests.pending(ChangeRequestTargetType.VENUE, v.getId()));
+                changeRequests.pending(ChangeRequestTargetType.VENUE, v.getId()),
+                images.ofVenue(v.getId()));
     }
 
     private static String blankToNull(String value) {
