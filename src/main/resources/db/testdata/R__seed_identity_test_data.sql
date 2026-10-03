@@ -30,10 +30,11 @@ ON CONFLICT (user_id) DO UPDATE SET
     updated_at = CURRENT_TIMESTAMP;
 
 INSERT INTO sporthub.shops (id, owner_user_id, slug, name, default_cancellation_policy, status)
-SELECT '00000000-0000-4000-8000-000000000201', user_id, 'test-provider-shop', 'Test Provider Shop', '{}'::jsonb, 'DRAFT'
+SELECT '00000000-0000-4000-8000-000000000201', user_id, 'test-provider-shop', 'Test Provider Shop', '{}'::jsonb, 'ACTIVE'
 FROM sporthub.provider_profiles
 WHERE user_id = (SELECT id FROM sporthub.users WHERE email_normalized = 'provider@test.sporthub.local')
 ON CONFLICT (owner_user_id) DO UPDATE SET
     slug = EXCLUDED.slug,
     name = EXCLUDED.name,
+    status = EXCLUDED.status,
     updated_at = CURRENT_TIMESTAMP;

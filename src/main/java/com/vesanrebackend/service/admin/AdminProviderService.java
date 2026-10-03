@@ -9,6 +9,7 @@ import com.vesanrebackend.entity.shop.Shop;
 import com.vesanrebackend.entity.account.UserAccount;
 import com.vesanrebackend.entity.account.UserRole;
 import com.vesanrebackend.entity.enums.ProviderStatus;
+import com.vesanrebackend.entity.enums.ShopStatus;
 import com.vesanrebackend.entity.enums.VerificationStatus;
 import com.vesanrebackend.repository.AuditLogRepository;
 import com.vesanrebackend.repository.ProviderProfileRepository;
@@ -80,6 +81,7 @@ public class AdminProviderService {
         ProviderVerification verification = pendingVerification(providerId);
         Instant now = clock.instant();
         profile.setStatus(ProviderStatus.VERIFIED);
+        profile.getShop().setStatus(ShopStatus.ACTIVE);
         profile.setVerifiedAt(now);
         review(verification, VerificationStatus.APPROVED, adminId, now, null);
         grantProviderRole(profile.getUser(), adminId);

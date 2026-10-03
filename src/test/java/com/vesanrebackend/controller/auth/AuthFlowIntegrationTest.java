@@ -159,7 +159,7 @@ class AuthFlowIntegrationTest {
         assertThat(providerLogin.getStatusCode().value()).isEqualTo(200);
         String providerToken = (String) providerLogin.getBody().get("accessToken");
         assertThat(postAs(client, "/api/admin/providers/" + rejectId + "/approve", null, providerToken).getStatusCode().value()).isEqualTo(403);
-        assertThat(jdbc.queryForObject("SELECT status FROM sporthub.shops WHERE owner_user_id = ?", String.class, approveId)).isEqualTo("DRAFT");
+        assertThat(jdbc.queryForObject("SELECT status FROM sporthub.shops WHERE owner_user_id = ?", String.class, approveId)).isEqualTo("ACTIVE");
         assertThat(jdbc.queryForMap("SELECT status, reviewed_by, reviewed_at IS NOT NULL AS reviewed FROM sporthub.provider_verifications WHERE provider_user_id = ?", approveId))
                 .containsEntry("status", "APPROVED").containsEntry("reviewed_by", adminId).containsEntry("reviewed", true);
         assertThat(jdbc.queryForMap("SELECT actor_user_id, before_data->>'status' AS before, after_data->>'status' AS after FROM sporthub.audit_logs WHERE entity_id = ? AND action = 'PROVIDER_APPROVED'", approveId))

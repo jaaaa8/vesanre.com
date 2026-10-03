@@ -58,7 +58,7 @@ class AdminProviderServiceTest {
     private final ProviderVerification verification = verification();
 
     @Test
-    void approveVerifiesProfileApprovesVerificationAndAuditsWithoutTouchingShop() {
+    void approveVerifiesProfileApprovesVerificationActivatesShopAndAudits() {
         stubPending();
 
         AdminProviderResponse response = service.approve(adminId, providerId);
@@ -69,9 +69,9 @@ class AdminProviderServiceTest {
         assertThat(verification.getReviewedBy()).isSameAs(admin);
         assertThat(verification.getReviewedAt()).isEqualTo(NOW);
         assertThat(verification.getRejectionReason()).isNull();
-        assertThat(shop.getStatus()).isEqualTo(ShopStatus.DRAFT);
+        assertThat(shop.getStatus()).isEqualTo(ShopStatus.ACTIVE);
         assertThat(response.status()).isEqualTo("VERIFIED");
-        assertThat(response.shop().status()).isEqualTo("DRAFT");
+        assertThat(response.shop().status()).isEqualTo("ACTIVE");
         assertThat(response.verification().status()).isEqualTo("APPROVED");
 
         AuditLog log = savedAudit();
