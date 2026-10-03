@@ -35,6 +35,7 @@ public class AuthController {
         return jwtService.issue(authService.login(request));
     }
 
+    // Logout is client-side: JWT is stateless, so the token simply expires after its TTL.
     @PostMapping("/logout")
     public ResponseEntity<Void> logout() {
         return ResponseEntity.noContent().build();

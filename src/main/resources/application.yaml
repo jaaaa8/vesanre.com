@@ -10,6 +10,12 @@ spring:
   flyway:
     # Pin history to public: with DB user "sporthub", search_path "$user" flips to the sporthub schema after V1.
     default-schema: public
+    # A DB that once ran the "testdata" profile has the R__ seed in its history; boot without that location.
+    ignore-migration-patterns: "repeatable:missing"
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
   mvc:
     problemdetails:
       enabled: true

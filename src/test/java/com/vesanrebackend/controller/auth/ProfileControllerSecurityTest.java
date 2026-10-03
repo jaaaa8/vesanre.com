@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -15,9 +16,12 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import java.util.Set;
 import java.util.UUID;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 
@@ -57,9 +61,35 @@ class ProfileControllerSecurityTest {
     }
 
     @Test
+    void providerApplicationRequiresTokenButNoRole() throws Exception {
+        UUID id = UUID.randomUUID();
+        String json = "{\"legalName\":\"Legal Co\"}";
+        when(authService.applyProvider(eq(id), any())).thenReturn(new UserProfileResponse(id, "member@example.com", "Member", null,
+                Set.of("CUSTOMER"), "PENDING"));
+
+        mvc.perform(post("/api/profile/provider-application").contentType(MediaType.APPLICATION_JSON).content(json))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/profile/provider-application").contentType(MediaType.APPLICATION_JSON).content(json)
+                        .with(SecurityMockMvcRequestPostProcessors.jwt()
+                                .jwt(jwt -> jwt.subject(id.toString()))
+                                .authorities(() -> "ROLE_CUSTOMER")))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
     void providerCannotReadAdminProfile() throws Exception {
         mvc.perform(get("/api/profile/admin").with(SecurityMockMvcRequestPostProcessors.user("provider").roles("PROVIDER")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void preflightAllowsPutAndDelete() throws Exception {
+        for (String method : new String[]{"PUT", "DELETE"}) {
+            mvc.perform(options("/api/profile/me")
+                            .header("Origin", "http://localhost:5173")
+                            .header("Access-Control-Request-Method", method))
+                    .andExpect(status().isOk());
+        }
     }
 
     @Test

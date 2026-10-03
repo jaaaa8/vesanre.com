@@ -1,5 +1,6 @@
 package com.vesanrebackend.entity;
 
+import com.vesanrebackend.entity.account.UserAccount;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;

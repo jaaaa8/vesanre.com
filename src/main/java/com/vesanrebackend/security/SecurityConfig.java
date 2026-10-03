@@ -54,6 +54,9 @@ public class SecurityConfig {
         if (bytes.length < 32) {
             throw new IllegalStateException("app.security.jwt.secret must be at least 32 bytes");
         }
+        if (secret.contains("replace-with")) {
+            throw new IllegalStateException("app.security.jwt.secret is still the .env.example placeholder");
+        }
         return new SecretKeySpec(bytes, "HmacSHA256");
     }
 

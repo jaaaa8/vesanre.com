@@ -11,10 +11,18 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class JwtServiceTest {
     private final SecurityConfig config = new SecurityConfig();
     private final SecretKey key = config.jwtSecretKey("test-secret-at-least-thirty-two-bytes-long");
+
+    @Test
+    void refusesShortOrPlaceholderSecret() {
+        assertThatThrownBy(() -> config.jwtSecretKey("too-short")).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> config.jwtSecretKey("replace-with-at-least-32-random-bytes"))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("placeholder");
+    }
 
     @Test
     void issuedTokenIsAcceptedByDecoderWithSubjectRolesAndTtl() {
