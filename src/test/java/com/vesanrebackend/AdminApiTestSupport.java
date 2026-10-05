@@ -20,7 +20,12 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Shared base for the admin review integration tests (Tasks 3-4). */
+/**
+ * Lớp nền dùng chung cho mọi integration test HTTP (auth, provider catalog, admin review): khởi động server
+ * Tomcat cổng ngẫu nhiên + PostgreSQL thật, JavaMailSender được mock.
+ * Cung cấp helper tạo customer/provider/admin, venue chờ duyệt, đăng nhập, gọi GET/POST/PATCH/PUT,
+ * đọc các trang danh sách, chờ email mock và chờ row lock. Không chứa test.
+ */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 public abstract class AdminApiTestSupport {
     @LocalServerPort

@@ -25,10 +25,17 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+/**
+ * Loại test: integration HTTP thật + PostgreSQL (kế thừa AdminApiTestSupport, mail sender mock).
+ * API: admin duyệt venue (/api/admin/venues/...) và change request (/api/admin/change-requests/...), cùng các API provider liên quan;
+ * gồm cả các test cạnh tranh (row lock) giữa thao tác admin/DB và thao tác provider.
+ */
 class AdminReviewIntegrationTest extends AdminApiTestSupport {
     @MockitoSpyBean
     private ReviewMailer mailer;
 
+    // API: GET /api/admin/venues, GET .../{id}, POST .../{id}/reject|approve|suspend|reactivate, POST /api/provider/venues/{id}/submit
+    // Kiểm tra: Chu trình reject -> nộp lại -> approve -> suspend -> reactivate: trạng thái, audit_logs, 4 email (reject/suspend kèm lý do); sai trạng thái 409, ID lạ 404 và không gửi thêm mail.
     @Test
     void venueFullCycleWithAuditAndMails() throws Exception {
         RestClient client = client();
@@ -78,6 +85,8 @@ class AdminReviewIntegrationTest extends AdminApiTestSupport {
         verify(mailer, times(4)).send(eq(provider.email()), any(), any(), any());
     }
 
+    // API: GET /api/admin/venues
+    // Kiểm tra: Phân trang (items, totalElements, totalPages), size tối đa 100, venue tạo trước xếp trước.
     @Test
     void venueListIsPagedOldestFirst() {
         RestClient client = client();
@@ -108,6 +117,8 @@ class AdminReviewIntegrationTest extends AdminApiTestSupport {
         return (String) ((Map) response.getBody().get("pendingChange")).get("id");
     }
 
+    // API: GET /api/admin/change-requests?targetType=VENUE|SHOP, POST .../{requestId}/approve, POST /api/provider/venues/{id}/change-request
+    // Kiểm tra: Lọc theo targetType, current chỉ chứa trường đổi; duyệt áp tên + tọa độ 6 chữ số, giữ ACTIVE, ghi reviewer/audit/mail; duyệt lại 409, ID lạ 404, tạo đơn mới được.
     @Test
     void venueChangeRequestApproveAppliesExactCoordinates() throws Exception {
         RestClient client = client();
@@ -148,6 +159,8 @@ class AdminReviewIntegrationTest extends AdminApiTestSupport {
                 .getStatusCode().value()).isEqualTo(201);
     }
 
+    // API: POST /api/admin/change-requests/{requestId}/reject
+    // Kiểm tra: Từ chối giữ nguyên tên venue, lưu REJECTED + lý do, gửi mail chứa lý do.
     @Test
     void rejectKeepsDataStoresReasonAndMails() throws Exception {
         RestClient client = client();
@@ -167,6 +180,8 @@ class AdminReviewIntegrationTest extends AdminApiTestSupport {
         });
     }
 
+    // API: POST /api/provider/shop/change-request, POST /api/admin/change-requests/{requestId}/approve
+    // Kiểm tra: Duyệt đổi tên shop thì tên mới được áp dụng nhưng slug giữ nguyên.
     @Test
     void shopChangeRequestApproveKeepsSlug() {
         RestClient client = client();
@@ -183,6 +198,8 @@ class AdminReviewIntegrationTest extends AdminApiTestSupport {
     }
 
     // Review focus #1: Venue has no @Version, so an unlocked read would write the stale ACTIVE status back.
+    // API: POST /api/admin/change-requests/{requestId}/approve
+    // Kiểm tra: Duyệt phải chờ row lock khi venue đang bị SUSPEND đồng thời (SQL); kết quả 200, status vẫn SUSPENDED, tên mới được áp dụng.
     @Test
     void approvingAChangeRequestDoesNotUndoAConcurrentSuspend() throws Exception {
         RestClient client = client();
@@ -209,6 +226,8 @@ class AdminReviewIntegrationTest extends AdminApiTestSupport {
     }
 
     // Venue has no @Version: without @DynamicUpdate the provider's full-row UPDATE would write the stale ACTIVE back.
+    // API: PATCH /api/provider/venues/{id}
+    // Kiểm tra: Provider sửa description trong lúc venue bị SUSPEND đồng thời (SQL): trả 200, status vẫn SUSPENDED, description mới được lưu.
     @Test
     void providerEditDoesNotUndoAConcurrentSuspend() throws Exception {
         RestClient client = client();
@@ -234,6 +253,8 @@ class AdminReviewIntegrationTest extends AdminApiTestSupport {
                 .containsEntry("status", "SUSPENDED").containsEntry("description", "Mo ta moi");
     }
 
+    // API: POST /api/provider/change-requests/{requestId}/cancel
+    // Kiểm tra: Hủy chờ lock khi đơn đang được duyệt đồng thời (SQL): trả 409, đơn vẫn APPROVED.
     @Test
     void cancelDoesNotOverwriteAConcurrentApprove() throws Exception {
         RestClient client = client();
@@ -267,6 +288,8 @@ class AdminReviewIntegrationTest extends AdminApiTestSupport {
     }
 
     // Same as the venue case: Shop has no @Version either, so without @DynamicUpdate the provider's full-row UPDATE restores ACTIVE.
+    // API: PATCH /api/provider/shop
+    // Kiểm tra: Provider sửa description shop trong lúc shop bị SUSPEND đồng thời (SQL): trả 200, shop vẫn SUSPENDED, description mới được lưu.
     @Test
     void providerShopEditDoesNotUndoAConcurrentSuspend() throws Exception {
         RestClient client = client();

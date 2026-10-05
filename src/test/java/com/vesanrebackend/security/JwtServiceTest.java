@@ -13,10 +13,16 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+/**
+ * Loại test: unit - SecurityConfig (khóa/encoder/decoder JWT) và JwtService, không HTTP, không DB.
+ * Liên quan token trả về bởi POST /api/auth/login.
+ */
 class JwtServiceTest {
     private final SecurityConfig config = new SecurityConfig();
     private final SecretKey key = config.jwtSecretKey("test-secret-at-least-thirty-two-bytes-long");
 
+    // Thành phần: SecurityConfig.jwtSecretKey
+    // Kiểm tra: Từ chối secret ngắn hoặc còn là placeholder bằng IllegalStateException.
     @Test
     void refusesShortOrPlaceholderSecret() {
         assertThatThrownBy(() -> config.jwtSecretKey("too-short")).isInstanceOf(IllegalStateException.class);
@@ -24,6 +30,8 @@ class JwtServiceTest {
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("placeholder");
     }
 
+    // Thành phần: JwtService.issue + SecurityConfig.jwtDecoder (token của POST /api/auth/login)
+    // Kiểm tra: Token phát hành được decoder chấp nhận: tokenType Bearer, expiresIn 900, subject, issuer, roles và TTL đúng.
     @Test
     void issuedTokenIsAcceptedByDecoderWithSubjectRolesAndTtl() {
         JwtService service = new JwtService(config.jwtEncoder(key), Clock.systemUTC(), "sporthub", 900);

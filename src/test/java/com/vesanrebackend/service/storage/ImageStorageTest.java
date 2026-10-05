@@ -24,6 +24,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * Loại test: unit - ImageStorage với Cloudinary/Uploader được mock (không gọi Cloudinary thật).
+ * Dùng bởi các API upload ảnh venue/court (POST .../images) và logo shop (PUT /api/provider/shop/logo).
+ */
 class ImageStorageTest {
     static final byte[] JPEG = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0, 0x10};
     static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0};
@@ -39,6 +43,8 @@ class ImageStorageTest {
         when(uploader.upload(any(), anyMap())).thenAnswer(inv -> Map.of("public_id", ((Map<?, ?>) inv.getArgument(1)).get("public_id")));
     }
 
+    // Thành phần: ImageStorage.upload
+    // Kiểm tra: Chữ ký JPEG/PNG/WEBP được chấp nhận; public_id = folder + UUID; options allowed_formats, resource_type, overwrite đúng.
     @Test
     void validImagesUploadIntoFolderWithAllowedFormats() throws IOException {
         for (byte[] bytes : new byte[][]{JPEG, PNG, WEBP}) {
@@ -51,6 +57,8 @@ class ImageStorageTest {
                 .containsEntry("resource_type", "image").containsEntry("overwrite", false);
     }
 
+    // Thành phần: ImageStorage.upload
+    // Kiểm tra: File giả (text, SVG), rỗng, header thiếu hoặc null trả 400 trước khi gọi uploader.
     @Test
     void fakeOrEmptyFilesAreRejectedBeforeNetwork() throws IOException {
         byte[] text = "hello, not an image".getBytes(StandardCharsets.UTF_8);
@@ -66,6 +74,8 @@ class ImageStorageTest {
         verify(uploader, never()).upload(any(), anyMap());
     }
 
+    // Thành phần: ImageStorage.upload
+    // Kiểm tra: IOException hoặc RuntimeException từ Cloudinary được chuyển thành 502.
     @Test
     void cloudinaryFailureIsBadGateway() throws IOException {
         doThrow(new IOException("down")).when(uploader).upload(any(), anyMap());
@@ -74,6 +84,8 @@ class ImageStorageTest {
         assertStatus(() -> storage.upload(new MockMultipartFile("file", JPEG), "f"), 502);
     }
 
+    // Thành phần: ImageStorage.delete
+    // Kiểm tra: Not found hoặc IOException khi xóa không ném lỗi; options destroy đúng.
     @Test
     void deleteNeverThrows() throws IOException {
         when(uploader.destroy(eq("a"), anyMap())).thenReturn(Map.of("result", "not found"));
@@ -83,6 +95,8 @@ class ImageStorageTest {
         verify(uploader).destroy(eq("a"), eq(ObjectUtils.asMap("resource_type", "image", "invalidate", true)));
     }
 
+    // Thành phần: ImageStorage.url
+    // Kiểm tra: Dựng URL HTTPS từ public ID cục bộ; null trả null.
     @Test
     void urlIsBuiltLocallyFromPublicId() {
         ImageStorage real = new ImageStorage(new Cloudinary(ObjectUtils.asMap("cloud_name", "demo", "secure", true)));

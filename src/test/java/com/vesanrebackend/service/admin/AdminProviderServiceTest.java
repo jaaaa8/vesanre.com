@@ -38,6 +38,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * Loại test: unit - AdminProviderService với repository, audit và mailer được mock, Clock cố định.
+ * Dùng bởi POST /api/admin/providers/{userId}/approve và /reject.
+ */
 class AdminProviderServiceTest {
     private static final Instant NOW = Instant.parse("2026-10-03T10:00:00Z");
 
@@ -58,6 +62,8 @@ class AdminProviderServiceTest {
     private final Shop shop = profile.getShop();
     private final ProviderVerification verification = verification();
 
+    // Thành phần: AdminProviderService.approve (dùng bởi POST /api/admin/providers/{userId}/approve)
+    // Kiểm tra: Profile thành VERIFIED, verification APPROVED, shop ACTIVE; reviewer/thời gian/response đúng và ghi audit trước/sau.
     @Test
     void approveVerifiesProfileApprovesVerificationActivatesShopAndAudits() {
         stubPending();
@@ -79,6 +85,8 @@ class AdminProviderServiceTest {
                 Map.of("status", "VERIFIED"));
     }
 
+    // Thành phần: AdminProviderService.approve (POST .../{userId}/approve)
+    // Kiểm tra: Duyệt cấp role PROVIDER; nếu đã có role thì không thêm trùng.
     @Test
     void approveGrantsProviderRoleOnceAndRejectGrantsNothing() {
         stubPending();
@@ -98,6 +106,8 @@ class AdminProviderServiceTest {
         verify(userRoles, times(1)).save(any());
     }
 
+    // Thành phần: AdminProviderService.reject (POST .../{userId}/reject)
+    // Kiểm tra: Từ chối không cấp role PROVIDER.
     @Test
     void rejectDoesNotGrantProviderRole() {
         stubPending();
@@ -107,6 +117,8 @@ class AdminProviderServiceTest {
         verifyNoInteractions(userRoles, roles);
     }
 
+    // Thành phần: AdminProviderService.reject (POST .../{userId}/reject)
+    // Kiểm tra: Profile/verification thành REJECTED, lưu lý do, reviewer, thời gian; shop vẫn DRAFT, verifiedAt vẫn null; ghi audit.
     @Test
     void rejectStoresReasonAndLeavesShopAndVerifiedAtUntouched() {
         stubPending();
@@ -126,6 +138,8 @@ class AdminProviderServiceTest {
                 Map.of("status", "REJECTED", "reason", "Tax id \"x\" is invalid"));
     }
 
+    // Thành phần: AdminProviderService.approve/reject + ReviewMailer
+    // Kiểm tra: Duyệt và từ chối gọi mailer đúng người nhận/tiêu đề; từ chối truyền kèm lý do.
     @Test
     void approveAndRejectMailTheApplicant() {
         stubPending();
@@ -138,6 +152,8 @@ class AdminProviderServiceTest {
         verify(mailer).send(eq("provider@example.com"), eq("[Vesanre] Đơn đăng ký nhà cung cấp bị từ chối"), any(), eq("Thiếu giấy tờ"));
     }
 
+    // Thành phần: AdminProviderService.approve/reject (POST .../approve, .../reject)
+    // Kiểm tra: Profile không còn PENDING (VERIFIED) thì cả hai trả 409, không audit, không gửi mail.
     @Test
     void notPendingIsConflict() {
         profile.setStatus(ProviderStatus.VERIFIED);
@@ -149,6 +165,8 @@ class AdminProviderServiceTest {
         verifyNoInteractions(mailer);
     }
 
+    // Thành phần: AdminProviderService.approve/reject (POST .../approve, .../reject)
+    // Kiểm tra: Không tìm thấy provider thì trả 404.
     @Test
     void unknownProviderIsNotFound() {
         when(providerProfiles.findByIdForUpdate(providerId)).thenReturn(Optional.empty());
@@ -157,6 +175,8 @@ class AdminProviderServiceTest {
         assertStatus(() -> service.reject(adminId, providerId, "no"), 404, "Provider not found");
     }
 
+    // Thành phần: AdminProviderService.approve/reject
+    // Kiểm tra: Thiếu verification PENDING thì trả 409; profile giữ PENDING và không ghi audit.
     @Test
     void missingPendingVerificationIsConflictAndChangesNothing() {
         when(providerProfiles.findByIdForUpdate(providerId)).thenReturn(Optional.of(profile));

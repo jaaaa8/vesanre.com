@@ -1,12 +1,8 @@
 package com.vesanrebackend.controller.auth;
 
+import com.vesanrebackend.AdminApiTestSupport;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.client.RestClient;
 
 import java.util.List;
@@ -16,16 +12,12 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Runs against real Tomcat + PostgreSQL (SPORTHUB_DB_*), so error dispatch and DB constraints are exercised.
+ * Loại test: integration HTTP thật + PostgreSQL (kế thừa AdminApiTestSupport), kiểm tra cả error dispatch và ràng buộc DB.
+ * API: /api/auth/register, /api/auth/login, /api/profile/me|provider|admin|provider-application, /api/admin/providers (list, approve, reject).
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class AuthFlowIntegrationTest {
-    @LocalServerPort
-    private int port;
-
-    @Autowired
-    private JdbcTemplate jdbc;
-
+class AuthFlowIntegrationTest extends AdminApiTestSupport {
+    // API: POST /api/auth/register, POST /api/auth/login, GET/PATCH /api/profile/me, GET /api/profile/provider, GET /api/profile/admin
+    // Kiểm tra: Đăng ký 201; trùng email/phone 409; body rỗng hoặc mật khẩu quá dài 400; role=PROVIDER bị bỏ qua (chỉ CUSTOMER); đăng nhập sai 401, email hoa vẫn được; PATCH phone khoảng trắng 400, rỗng xóa phone; thiếu token 401, CUSTOMER vào provider/admin 403.
     @Test
     void registerLoginProfileAndRoleChecks() {
         RestClient client = client();
@@ -81,6 +73,8 @@ class AuthFlowIntegrationTest {
         assertThat(get(client, "/api/profile/admin", token).getStatusCode().value()).isEqualTo(403);
     }
 
+    // API: POST /api/profile/provider-application, POST /api/auth/login, GET /api/profile/provider
+    // Kiểm tra: Nộp đơn tạo provider_profile PENDING, shop DRAFT (slug đúng), verification PENDING, vẫn chỉ role CUSTOMER; thiếu token 401, body rỗng 400, nộp lại 409; vẫn đăng nhập được nhưng GET /api/profile/provider 403.
     @Test
     void providerApplicationCreatesPendingProfileDraftShopAndVerificationWhileLoginStaysOpen() {
         RestClient client = client();
@@ -88,6 +82,7 @@ class AuthFlowIntegrationTest {
         String email = "provider-" + suffix + "@example.com";
         UUID userId = UUID.fromString((String) post(client, "/api/auth/register", Map.of("email", email,
                 "password", "correct-password", "displayName", "IT Provider")).getBody().get("id"));
+        assertThat(userId.version()).isEqualTo(7);
         String token = login(client, email);
         Map<String, Object> body = Map.of("legalName", "C\u00f4ng ty S\u00e2n \u0110\u1eb9p " + suffix);
 
@@ -118,6 +113,8 @@ class AuthFlowIntegrationTest {
         assertThat(postAs(client, "/api/profile/provider-application", body, token).getStatusCode().value()).isEqualTo(409);
     }
 
+    // API: GET /api/admin/providers, POST .../{userId}/approve, POST .../{userId}/reject, POST /api/profile/provider-application
+    // Kiểm tra: Danh sách có hồ sơ; approve cấp PROVIDER, shop ACTIVE, ghi verification + audit (duyệt lại 409, ID lạ 404, provider gọi 403); reject cần lý do (trống 400), giữ shop DRAFT, không cấp role, nộp lại được.
     @Test
     void adminApprovalGrantsProviderRoleAndRejectedApplicantCanReapply() {
         RestClient client = client();
@@ -203,34 +200,8 @@ class AuthFlowIntegrationTest {
         return userId;
     }
 
-    private String login(RestClient client, String email) {
-        return (String) post(client, "/api/auth/login", Map.of("email", email, "password", "correct-password"))
-                .getBody().get("accessToken");
-    }
-
     private ResponseEntity<Map> postAs(RestClient client, String path, Map<String, Object> body, String token) {
         RestClient.RequestBodySpec spec = client.post().uri(path).headers(headers -> headers.setBearerAuth(token));
         return (body == null ? spec : spec.body(body)).retrieve().toEntity(Map.class);
-    }
-
-    private RestClient client() {
-        return RestClient.builder()
-                .baseUrl("http://localhost:" + port)
-                .defaultStatusHandler(HttpStatusCode::isError, (request, response) -> { })
-                .build();
-    }
-
-    private ResponseEntity<Map> post(RestClient client, String path, Map<String, Object> body) {
-        return client.post().uri(path).body(body).retrieve().toEntity(Map.class);
-    }
-
-    private ResponseEntity<Map> patch(RestClient client, String path, Map<String, Object> body, String token) {
-        return client.patch().uri(path).headers(headers -> headers.setBearerAuth(token)).body(body).retrieve().toEntity(Map.class);
-    }
-
-    private ResponseEntity<Map> get(RestClient client, String path, String token) {
-        return client.get().uri(path)
-                .headers(headers -> { if (token != null) headers.setBearerAuth(token); })
-                .retrieve().toEntity(Map.class);
     }
 }

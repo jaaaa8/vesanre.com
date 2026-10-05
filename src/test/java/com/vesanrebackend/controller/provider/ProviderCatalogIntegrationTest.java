@@ -1,5 +1,6 @@
 package com.vesanrebackend.controller.provider;
 
+import com.vesanrebackend.AdminApiTestSupport;
 import com.vesanrebackend.service.storage.ImageStorage;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.core.io.ByteArrayResource;
@@ -9,12 +10,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
@@ -31,19 +27,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Shared base for the provider catalog API tests (Tasks 3-7 add their tests here). Real Tomcat + PostgreSQL.
+ * Loại test: integration HTTP thật + PostgreSQL (kế thừa AdminApiTestSupport); ImageStorage được mock.
+ * API: danh mục công khai /api/catalog/*, và /api/provider/** (shop, venue, court, change request, ảnh venue/court, logo shop).
+ * Provider đã xác minh được tạo bằng verifiedProvider() (cập nhật JDBC), không đi qua luồng admin duyệt.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class ProviderCatalogIntegrationTest {
-    @LocalServerPort
-    private int port;
-
-    @Autowired
-    private JdbcTemplate jdbc;
-
-    record Provider(UUID userId, String token) {
-    }
-
+class ProviderCatalogIntegrationTest extends AdminApiTestSupport {
+    // API: GET /api/catalog/sports, GET /api/catalog/amenities
+    // Kiểm tra: Không cần token, trả dữ liệu seed (BADMINTON, LIGHTING) đúng id/code/name/scope; provider cũng đọc được.
     @Test
     void catalogIsPublicAndListsSeededSportsAndAmenities() {
         RestClient client = client();
@@ -64,6 +54,8 @@ class ProviderCatalogIntegrationTest {
         assertThat(get(client, "/api/catalog/sports", provider.token(), List.class).getStatusCode().value()).isEqualTo(200);
     }
 
+    // API: GET/PATCH /api/provider/shop, POST /api/provider/shop/change-request, POST /api/provider/change-requests/{requestId}/cancel
+    // Kiểm tra: PATCH trường tự do áp dụng ngay, PATCH rỗng giữ nguyên; đổi tên tạo pendingChange (tên trống/không đổi 400, đơn thứ hai 409); người khác hủy 404, chủ hủy 204, hủy lại 409, nộp lại được.
     @Test
     void shopReadUpdateAndChangeRequestFlow() {
         RestClient client = client();
@@ -114,6 +106,8 @@ class ProviderCatalogIntegrationTest {
                 .getStatusCode().value()).isEqualTo(201);
     }
 
+    // API: GET/POST /api/provider/venues, GET/DELETE .../{id}, POST .../{id}/submit, PUT .../{id}/amenities
+    // Kiểm tra: Tạo DRAFT + slug, thiếu field/tọa độ lẻ 400; provider khác nhận 404; submit khi chưa có sân ACTIVE 409, có sân thì PENDING_REVIEW; không submit lại/xóa khi đang chờ duyệt (409); xóa DRAFT 204 rồi 404.
     @Test
     void venueCreateSubmitDeleteAndOwnership() {
         RestClient client = client();
@@ -159,6 +153,8 @@ class ProviderCatalogIntegrationTest {
         assertThat(get(client, "/api/provider/venues/" + draft, token).getStatusCode().value()).isEqualTo(404);
     }
 
+    // API: PUT /api/provider/venues/{id}/amenities, GET /api/provider/venues/{id}
+    // Kiểm tra: Thay toàn bộ tiện ích, lặp lại được; scope COURT, id lạ, trùng, phần tử null thì 400; scope BOTH hợp lệ; danh sách rỗng xóa hết.
     @Test
     void venueAmenitiesReplaceAllAndScope() {
         RestClient client = client();
@@ -190,6 +186,8 @@ class ProviderCatalogIntegrationTest {
         assertThat((List) get(client, "/api/provider/venues/" + id, token).getBody().get("amenities")).isEmpty();
     }
 
+    // API: PATCH /api/provider/venues/{id}, POST .../{id}/change-request, POST /api/provider/change-requests/{requestId}/cancel
+    // Kiểm tra: Theo trạng thái: DRAFT/REJECTED sửa trường quan trọng ngay; PENDING_REVIEW/ACTIVE trả 409 (PATCH trộn bị từ chối toàn bộ); tọa độ cùng giá trị khác scale = không đổi (400); ACTIVE/SUSPENDED tạo change request (201, giữ dữ liệu cũ, trùng 409, hủy rồi nộp lại); provider khác 404.
     @Test
     void venuePatchAndChangeRequestByStatus() {
         RestClient client = client();
@@ -267,6 +265,8 @@ class ProviderCatalogIntegrationTest {
         assertThat(post(client, path + "/change-request", Map.of("name", "z"), other).getStatusCode().value()).isEqualTo(404);
     }
 
+    // API: POST /api/provider/venues/{venueId}/courts, GET/PATCH /api/provider/courts/{id}, GET /api/provider/venues/{venueId}
+    // Kiểm tra: Tạo sân ACTIVE (chuẩn hóa code), mã trùng cùng venue 409; validation capacity/step/min/max 400; PATCH kiểm tra lại giá trị kết hợp; provider khác tạo/đọc/sửa đều 404.
     @Test
     void courtCreateGetPatchAndOwnership() {
         RestClient client = client();
@@ -324,6 +324,8 @@ class ProviderCatalogIntegrationTest {
         assertThat(patch(client, path, Map.of("name", "x"), other).getStatusCode().value()).isEqualTo(404);
     }
 
+    // API: PUT /api/provider/courts/{id}/sports|amenities|operating-hours|pricing-rules, GET /api/provider/courts/{id}
+    // Kiểm tra: Mỗi nhóm thay toàn bộ, lặp lại được, response/GET trả dữ liệu mới và không ghi đè nhóm khác; kiểm tra 1 primary sport, scope tiện ích, đủ 7 ngày giờ mở, giá không chồng lấn/khoảng hợp lệ (sai trả 400); provider khác 404.
     @Test
     void courtReplaceAllPutsReturnNewDataAndAreRepeatable() {
         RestClient client = client();
@@ -422,6 +424,8 @@ class ProviderCatalogIntegrationTest {
     }
 
     // Spec #1 end to end through the real APIs: venue -> court -> hours -> prices -> sports -> submit.
+    // API: POST /api/provider/venues, POST .../{venueId}/courts, PUT .../courts/{id}/operating-hours|pricing-rules|sports, POST .../venues/{venueId}/submit
+    // Kiểm tra: Luồng end-to-end: submit khi chưa có sân 409; sau khi có sân + giờ + giá + môn thì submit trả 200, PENDING_REVIEW.
     @Test
     void venueCourtHoursPricingSportsThenSubmitPendingReview() {
         RestClient client = client();
@@ -473,6 +477,8 @@ class ProviderCatalogIntegrationTest {
         when(storage.url(anyString())).thenAnswer(inv -> "https://img.test/" + inv.getArgument(0));
     }
 
+    // API: POST /api/provider/venues/{id}/images, GET /api/provider/venues/{id}
+    // Kiểm tra: Upload 201: ảnh đầu là cover, sortOrder/altText/URL đúng; altText > 255 ký tự 400; provider khác 404; ảnh thứ 11 trả 409.
     @Test
     void venueImagesUploadLimitAndOwnership() {
         RestClient client = client();
@@ -504,6 +510,8 @@ class ProviderCatalogIntegrationTest {
         assertThat(upload(client, HttpMethod.POST, path, null, token).getStatusCode().value()).isEqualTo(409);
     }
 
+    // API: PUT /api/provider/venues/{id}/images, DELETE .../{id}/images/{imageId}, GET /api/provider/venues/{id}
+    // Kiểm tra: Reorder phải đủ đúng tập ID (thiếu/trùng/lạ 400, người khác 404), đổi cover/altText, lặp lại được; xóa cover thì ảnh kế thành cover và storage xóa object sau commit; xóa lặp 404, xóa hết còn gallery rỗng.
     @Test
     void venueImagesReorderAndDelete() {
         RestClient client = client();
@@ -546,6 +554,8 @@ class ProviderCatalogIntegrationTest {
         assertThat((List) get(client, "/api/provider/venues/" + venueId, token).getBody().get("images")).isEmpty();
     }
 
+    // API: POST/PUT /api/provider/courts/{id}/images, DELETE .../images/{imageId}, GET /api/provider/courts/{id}
+    // Kiểm tra: Upload vào đúng thư mục sân, reorder, xóa, cover còn lại đúng; provider khác upload 404.
     @Test
     void courtImagesUploadReorderDelete() {
         RestClient client = client();
@@ -567,6 +577,8 @@ class ProviderCatalogIntegrationTest {
         assertThat(images).hasSize(1).first().satisfies(i -> assertThat(i).containsEntry("id", a).containsEntry("cover", true));
     }
 
+    // API: POST /api/provider/venues/{id}/images
+    // Kiểm tra: Storage trả key đã tồn tại -> vi phạm unique, trả 409 và rollback; object vừa upload được xóa khỏi storage.
     @Test
     void imageUploadRolledBackDeletesObject() {
         RestClient client = client();
@@ -582,6 +594,8 @@ class ProviderCatalogIntegrationTest {
         verify(storage, timeout(5000)).delete(existing);
     }
 
+    // API: POST /api/provider/venues/{id}/images
+    // Kiểm tra: File > 5MB bị chặn (413 hoặc kết nối bị reset) trước khi gọi storage; không tạo dòng venue_images.
     @Test
     void oversizedUploadIsRejectedBeforeStorage() {
         RestClient client = client();
@@ -601,6 +615,8 @@ class ProviderCatalogIntegrationTest {
                 Integer.class, UUID.fromString(venueId))).isZero();
     }
 
+    // API: GET /api/provider/shop, PUT /api/provider/shop/logo, DELETE /api/provider/shop/logo
+    // Kiểm tra: Ban đầu không có logo; PUT thay logo (URL mới, object cũ bị xóa); DELETE trả 204, logoUrl null, object bị xóa; xóa khi không có logo vẫn 204.
     @Test
     void shopLogoReplaceAndDelete() {
         RestClient client = client();
@@ -626,6 +642,8 @@ class ProviderCatalogIntegrationTest {
         assertThat(delete(client, "/api/provider/shop/logo", token).getStatusCode().value()).isEqualTo(204);
     }
 
+    // API: DELETE /api/provider/venues/{id} (có upload ảnh venue/court để chuẩn bị)
+    // Kiểm tra: Xóa venue DRAFT trả 204, storage xóa cả ảnh venue lẫn ảnh sân, dòng court_images bị xóa.
     @Test
     void deletingDraftVenueDropsVenueAndCourtImageObjects() {
         RestClient client = client();
@@ -672,11 +690,6 @@ class ProviderCatalogIntegrationTest {
                 .contentType(MediaType.MULTIPART_FORM_DATA).body(parts).retrieve().toEntity(Map.class);
     }
 
-    Map<String, Object> venueBody(String name) {
-        return Map.of("name", name, "addressLine", "1 Le Loi", "district", "Quan 1", "city", "HCM",
-                "latitude", 10.5, "longitude", 106.7);
-    }
-
     UUID sportId(String code) {
         return jdbc.queryForObject("SELECT id FROM sporthub.sports WHERE code = ?", UUID.class, code);
     }
@@ -685,61 +698,11 @@ class ProviderCatalogIntegrationTest {
         return jdbc.queryForObject("SELECT id FROM sporthub.amenities WHERE code = ?", UUID.class, code);
     }
 
-    /** register -> apply -> JDBC verify + PROVIDER role + ACTIVE shop -> login (roles are read at login). */
-    Provider verifiedProvider() {
-        RestClient client = client();
-        String suffix = UUID.randomUUID().toString().substring(0, 8);
-        String email = "catalog-" + suffix + "@example.com";
-        UUID userId = UUID.fromString((String) post(client, "/api/auth/register", Map.of("email", email,
-                "password", "correct-password", "displayName", "IT Catalog " + suffix)).getBody().get("id"));
-        String applyToken = login(client, email);
-        assertThat(post(client, "/api/profile/provider-application", Map.of("legalName", "Catalog " + suffix), applyToken)
-                .getStatusCode().value()).isEqualTo(201);
-        jdbc.update("UPDATE sporthub.provider_profiles SET status = 'VERIFIED', verified_at = CURRENT_TIMESTAMP WHERE user_id = ?", userId);
-        jdbc.update("INSERT INTO sporthub.user_roles (user_id, role_code) VALUES (?, 'PROVIDER')", userId);
-        jdbc.update("UPDATE sporthub.shops SET status = 'ACTIVE' WHERE owner_user_id = ?", userId);
-        return new Provider(userId, login(client, email));
-    }
-
-    RestClient client() {
-        return RestClient.builder()
-                .baseUrl("http://localhost:" + port)
-                .defaultStatusHandler(HttpStatusCode::isError, (request, response) -> { })
-                .build();
-    }
-
-    String login(RestClient client, String email) {
-        return (String) post(client, "/api/auth/login", Map.of("email", email, "password", "correct-password"))
-                .getBody().get("accessToken");
-    }
-
-    ResponseEntity<Map> get(RestClient client, String path, String token) {
-        return get(client, path, token, Map.class);
-    }
-
     <T> ResponseEntity<T> get(RestClient client, String path, String token, Class<T> type) {
         return client.get().uri(path)
                 .headers(headers -> { if (token != null) headers.setBearerAuth(token); })
                 .retrieve().toEntity(type);
     }
-
-    ResponseEntity<Map> post(RestClient client, String path, Map<String, Object> body) {
-        return post(client, path, body, null);
-    }
-
-    ResponseEntity<Map> post(RestClient client, String path, Map<String, Object> body, String token) {
-        return client.post().uri(path).headers(headers -> { if (token != null) headers.setBearerAuth(token); })
-                .body(body).retrieve().toEntity(Map.class);
-    }
-
-    ResponseEntity<Map> patch(RestClient client, String path, Map<String, Object> body, String token) {
-        return client.patch().uri(path).headers(headers -> headers.setBearerAuth(token)).body(body).retrieve().toEntity(Map.class);
-    }
-
-    ResponseEntity<Map> put(RestClient client, String path, Object body, String token) {
-        return client.put().uri(path).headers(headers -> headers.setBearerAuth(token)).body(body).retrieve().toEntity(Map.class);
-    }
-
     ResponseEntity<Map> delete(RestClient client, String path, String token) {
         return client.delete().uri(path).headers(headers -> headers.setBearerAuth(token)).retrieve().toEntity(Map.class);
     }

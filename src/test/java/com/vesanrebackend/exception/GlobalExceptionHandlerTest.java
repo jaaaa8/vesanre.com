@@ -8,9 +8,15 @@ import java.sql.SQLException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Loại test: unit - gọi trực tiếp GlobalExceptionHandler với exception mô phỏng (không HTTP, không DB).
+ * Thành phần: GlobalExceptionHandler.dataIntegrity (chuyển lỗi ràng buộc DB thành ProblemDetail cho mọi API).
+ */
 class GlobalExceptionHandlerTest {
     private final GlobalExceptionHandler handler = new GlobalExceptionHandler();
 
+    // Thành phần: GlobalExceptionHandler.dataIntegrity
+    // Kiểm tra: SQLSTATE 23505 (unique) và 23P01 (exclusion) được chuyển thành 409.
     @Test
     void uniqueAndExclusionViolationsAre409() {
         for (String state : new String[]{"23505", "23P01"}) {
@@ -20,6 +26,8 @@ class GlobalExceptionHandlerTest {
         }
     }
 
+    // Thành phần: GlobalExceptionHandler.dataIntegrity
+    // Kiểm tra: Vi phạm khác (NOT NULL 23502) hoặc không có SQL cause trả 500, detail chung "Unexpected server error".
     @Test
     void otherIntegrityViolationsAre500WithGenericDetail() {
         ProblemDetail notNull = handler.dataIntegrity(

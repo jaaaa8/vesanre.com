@@ -30,6 +30,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/**
+ * Loại test: @WebMvcTest + MockMvc (các service/repository provider và catalog được mock) - kiểm tra phân quyền và validation.
+ * API: /api/provider/** (shop, venues, courts, images, logo, change-requests) và /api/catalog/sports|amenities.
+ */
 @WebMvcTest(value = {ProviderShopController.class, ProviderVenueController.class, ProviderCourtController.class,
         ProviderImageController.class, CatalogController.class}, properties = {
         "app.security.jwt.secret=test-secret-at-least-thirty-two-bytes-long",
@@ -58,6 +62,8 @@ class ProviderCatalogControllerSecurityTest {
     @MockitoBean
     private AmenityRepository amenities;
 
+    // API: GET /api/provider/shop|venues|venues/{id}|courts/{id}, POST .../change-requests/{id}/cancel, PUT .../courts/{id}/sports, POST .../venues/{id}/images, DELETE .../courts/{id}/images/{imageId}, DELETE .../shop/logo
+    // Kiểm tra: Không có token thì tất cả trả 401.
     @Test
     void unauthenticatedIsUnauthorized() throws Exception {
         for (String path : GETS) mvc.perform(get(path)).andExpect(status().isUnauthorized());
@@ -70,6 +76,8 @@ class ProviderCatalogControllerSecurityTest {
         mvc.perform(delete("/api/provider/shop/logo")).andExpect(status().isUnauthorized());
     }
 
+    // API: Cùng bộ route /api/provider/** như trên
+    // Kiểm tra: CUSTOMER và ADMIN (không có PROVIDER) bị chặn 403.
     @Test
     void customerAndAdminAreForbidden() throws Exception {
         for (String role : new String[]{"CUSTOMER", "ADMIN"}) {
@@ -85,6 +93,8 @@ class ProviderCatalogControllerSecurityTest {
         }
     }
 
+    // API: GET shop/venues/venue/court, POST .../change-requests/{id}/cancel, PUT .../courts/{id}/sports
+    // Kiểm tra: PROVIDER được phép: GET/PUT trả 200, cancel trả 204 (service mock).
     @Test
     void providerIsAllowed() throws Exception {
         RequestPostProcessor provider = as("PROVIDER");
@@ -94,6 +104,8 @@ class ProviderCatalogControllerSecurityTest {
                 .contentType(MediaType.APPLICATION_JSON).content("[]")).andExpect(status().isOk());
     }
 
+    // API: PUT /api/provider/courts/{id}/sports, PUT .../operating-hours
+    // Kiểm tra: sportId null, phần tử null và weekday=9 bị validation chặn, trả 400.
     @Test
     void invalidListElementIsBadRequest() throws Exception {
         RequestPostProcessor provider = as("PROVIDER");
@@ -108,6 +120,8 @@ class ProviderCatalogControllerSecurityTest {
                 .andExpect(status().isBadRequest());
     }
 
+    // API: GET /api/catalog/sports, GET /api/catalog/amenities, POST /api/catalog/sports
+    // Kiểm tra: GET công khai 200; POST không xác thực trả 401.
     @Test
     void catalogIsPublicForGetOnly() throws Exception {
         mvc.perform(get("/api/catalog/sports")).andExpect(status().isOk());

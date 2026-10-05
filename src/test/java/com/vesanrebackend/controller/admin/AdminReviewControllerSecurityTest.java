@@ -20,6 +20,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/**
+ * Loại test: @WebMvcTest + MockMvc (AdminVenueService, AdminChangeRequestService được mock) - kiểm tra phân quyền và validation.
+ * API: /api/admin/venues (list, detail, approve, reject, suspend, reactivate) và /api/admin/change-requests (list, approve, reject).
+ */
 @WebMvcTest(value = {AdminVenueController.class, AdminChangeRequestController.class}, properties = {
         "app.security.jwt.secret=test-secret-at-least-thirty-two-bytes-long",
         "app.cors.allowed-origin=http://localhost:5173"})
@@ -36,11 +40,15 @@ class AdminReviewControllerSecurityTest {
     @MockitoBean
     private AdminChangeRequestService adminChangeRequests;
 
+    // API: GET /api/admin/venues
+    // Kiểm tra: Không có token thì trả 401.
     @Test
     void unauthenticatedIsUnauthorized() throws Exception {
         mvc.perform(get(PATH)).andExpect(status().isUnauthorized());
     }
 
+    // API: GET /api/admin/venues, GET .../{id}, POST .../{id}/approve|reactivate|reject|suspend
+    // Kiểm tra: CUSTOMER và PROVIDER bị chặn 403 ở mọi endpoint quản lý venue.
     @Test
     void customerAndProviderAreForbiddenOnEveryEndpoint() throws Exception {
         for (String role : new String[]{"CUSTOMER", "PROVIDER"}) {
@@ -57,6 +65,8 @@ class AdminReviewControllerSecurityTest {
         }
     }
 
+    // API: GET /api/admin/change-requests, POST .../{requestId}/approve, POST .../{requestId}/reject
+    // Kiểm tra: CUSTOMER/PROVIDER bị chặn 403; ADMIN gửi targetType=NOPE trả 400.
     @Test
     void changeRequestsAreAdminOnly() throws Exception {
         String path = "/api/admin/change-requests";
@@ -71,6 +81,8 @@ class AdminReviewControllerSecurityTest {
         mvc.perform(get(path + "?targetType=NOPE").with(as("ADMIN"))).andExpect(status().isBadRequest());
     }
 
+    // API: GET /api/admin/venues?page|size, POST /api/admin/venues/{id}/reject
+    // Kiểm tra: page=-1, size=0 và lý do toàn khoảng trắng đều trả 400.
     @Test
     void adminInputIsValidated() throws Exception {
         RequestPostProcessor admin = as("ADMIN");
