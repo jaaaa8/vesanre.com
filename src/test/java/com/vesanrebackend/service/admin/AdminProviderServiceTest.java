@@ -1,7 +1,6 @@
 package com.vesanrebackend.service.admin;
 
 import com.vesanrebackend.dto.admin.AdminProviderResponse;
-import com.vesanrebackend.entity.AuditLog;
 import com.vesanrebackend.entity.provider.ProviderProfile;
 import com.vesanrebackend.entity.provider.ProviderVerification;
 import com.vesanrebackend.entity.account.Role;
@@ -11,33 +10,38 @@ import com.vesanrebackend.entity.account.UserRole;
 import com.vesanrebackend.entity.enums.ProviderStatus;
 import com.vesanrebackend.entity.enums.ShopStatus;
 import com.vesanrebackend.entity.enums.VerificationStatus;
-import com.vesanrebackend.repository.AuditLogRepository;
 import com.vesanrebackend.repository.ProviderProfileRepository;
 import com.vesanrebackend.repository.ProviderVerificationRepository;
 import com.vesanrebackend.repository.RoleRepository;
 import com.vesanrebackend.repository.UserAccountRepository;
 import com.vesanrebackend.repository.UserRoleRepository;
+import com.vesanrebackend.service.mail.ReviewMailer;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.server.ResponseStatusException;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * Loại test: unit - AdminProviderService với repository, audit và mailer được mock, Clock cố định.
+ * Dùng bởi POST /api/admin/providers/{userId}/approve và /reject.
+ */
 class AdminProviderServiceTest {
     private static final Instant NOW = Instant.parse("2026-10-03T10:00:00Z");
 
@@ -46,9 +50,10 @@ class AdminProviderServiceTest {
     private final UserAccountRepository users = mock(UserAccountRepository.class);
     private final RoleRepository roles = mock(RoleRepository.class);
     private final UserRoleRepository userRoles = mock(UserRoleRepository.class);
-    private final AuditLogRepository auditLogs = mock(AuditLogRepository.class);
-    private final AdminProviderService service = new AdminProviderService(providerProfiles, verifications, users, roles, userRoles, auditLogs,
-            JsonMapper.builder().build(), Clock.fixed(NOW, ZoneOffset.UTC));
+    private final AdminAudit audit = mock(AdminAudit.class);
+    private final ReviewMailer mailer = mock(ReviewMailer.class);
+    private final AdminProviderService service = new AdminProviderService(providerProfiles, verifications, users, roles, userRoles, audit,
+            Clock.fixed(NOW, ZoneOffset.UTC), mailer);
 
     private final UUID adminId = UUID.randomUUID();
     private final UUID providerId = UUID.randomUUID();
@@ -57,8 +62,10 @@ class AdminProviderServiceTest {
     private final Shop shop = profile.getShop();
     private final ProviderVerification verification = verification();
 
+    // Thành phần: AdminProviderService.approve (dùng bởi POST /api/admin/providers/{userId}/approve)
+    // Kiểm tra: Profile thành VERIFIED, verification APPROVED, shop ACTIVE; reviewer/thời gian/response đúng và ghi audit trước/sau.
     @Test
-    void approveVerifiesProfileApprovesVerificationAndAuditsWithoutTouchingShop() {
+    void approveVerifiesProfileApprovesVerificationActivatesShopAndAudits() {
         stubPending();
 
         AdminProviderResponse response = service.approve(adminId, providerId);
@@ -69,20 +76,17 @@ class AdminProviderServiceTest {
         assertThat(verification.getReviewedBy()).isSameAs(admin);
         assertThat(verification.getReviewedAt()).isEqualTo(NOW);
         assertThat(verification.getRejectionReason()).isNull();
-        assertThat(shop.getStatus()).isEqualTo(ShopStatus.DRAFT);
+        assertThat(shop.getStatus()).isEqualTo(ShopStatus.ACTIVE);
         assertThat(response.status()).isEqualTo("VERIFIED");
-        assertThat(response.shop().status()).isEqualTo("DRAFT");
+        assertThat(response.shop().status()).isEqualTo("ACTIVE");
         assertThat(response.verification().status()).isEqualTo("APPROVED");
 
-        AuditLog log = savedAudit();
-        assertThat(log.getAction()).isEqualTo("PROVIDER_APPROVED");
-        assertThat(log.getEntityType()).isEqualTo("PROVIDER_PROFILE");
-        assertThat(log.getEntityId()).isEqualTo(providerId);
-        assertThat(log.getActorUser()).isSameAs(admin);
-        assertThat(log.getBeforeData()).isEqualTo("{\"status\":\"PENDING\"}");
-        assertThat(log.getAfterData()).isEqualTo("{\"status\":\"VERIFIED\"}");
+        verify(audit).record(adminId, "PROVIDER_APPROVED", "PROVIDER_PROFILE", providerId, Map.of("status", "PENDING"),
+                Map.of("status", "VERIFIED"));
     }
 
+    // Thành phần: AdminProviderService.approve (POST .../{userId}/approve)
+    // Kiểm tra: Duyệt cấp role PROVIDER; nếu đã có role thì không thêm trùng.
     @Test
     void approveGrantsProviderRoleOnceAndRejectGrantsNothing() {
         stubPending();
@@ -102,6 +106,8 @@ class AdminProviderServiceTest {
         verify(userRoles, times(1)).save(any());
     }
 
+    // Thành phần: AdminProviderService.reject (POST .../{userId}/reject)
+    // Kiểm tra: Từ chối không cấp role PROVIDER.
     @Test
     void rejectDoesNotGrantProviderRole() {
         stubPending();
@@ -111,6 +117,8 @@ class AdminProviderServiceTest {
         verifyNoInteractions(userRoles, roles);
     }
 
+    // Thành phần: AdminProviderService.reject (POST .../{userId}/reject)
+    // Kiểm tra: Profile/verification thành REJECTED, lưu lý do, reviewer, thời gian; shop vẫn DRAFT, verifiedAt vẫn null; ghi audit.
     @Test
     void rejectStoresReasonAndLeavesShopAndVerifiedAtUntouched() {
         stubPending();
@@ -126,12 +134,26 @@ class AdminProviderServiceTest {
         assertThat(shop.getStatus()).isEqualTo(ShopStatus.DRAFT);
         assertThat(response.status()).isEqualTo("REJECTED");
 
-        AuditLog log = savedAudit();
-        assertThat(log.getAction()).isEqualTo("PROVIDER_REJECTED");
-        // Reason goes through Jackson, so quotes are escaped instead of breaking the JSON.
-        assertThat(log.getAfterData()).isEqualTo("{\"status\":\"REJECTED\",\"reason\":\"Tax id \\\"x\\\" is invalid\"}");
+        verify(audit).record(adminId, "PROVIDER_REJECTED", "PROVIDER_PROFILE", providerId, Map.of("status", "PENDING"),
+                Map.of("status", "REJECTED", "reason", "Tax id \"x\" is invalid"));
     }
 
+    // Thành phần: AdminProviderService.approve/reject + ReviewMailer
+    // Kiểm tra: Duyệt và từ chối gọi mailer đúng người nhận/tiêu đề; từ chối truyền kèm lý do.
+    @Test
+    void approveAndRejectMailTheApplicant() {
+        stubPending();
+        service.approve(adminId, providerId);
+        verify(mailer).send(eq("provider@example.com"), eq("[Vesanre] Đơn đăng ký nhà cung cấp đã được duyệt"), any(), isNull());
+
+        profile.setStatus(ProviderStatus.PENDING);
+        verification.setStatus(VerificationStatus.PENDING);
+        service.reject(adminId, providerId, "Thiếu giấy tờ");
+        verify(mailer).send(eq("provider@example.com"), eq("[Vesanre] Đơn đăng ký nhà cung cấp bị từ chối"), any(), eq("Thiếu giấy tờ"));
+    }
+
+    // Thành phần: AdminProviderService.approve/reject (POST .../approve, .../reject)
+    // Kiểm tra: Profile không còn PENDING (VERIFIED) thì cả hai trả 409, không audit, không gửi mail.
     @Test
     void notPendingIsConflict() {
         profile.setStatus(ProviderStatus.VERIFIED);
@@ -139,9 +161,12 @@ class AdminProviderServiceTest {
 
         assertStatus(() -> service.approve(adminId, providerId), 409, "Provider is not pending");
         assertStatus(() -> service.reject(adminId, providerId, "no"), 409, "Provider is not pending");
-        verify(auditLogs, never()).save(any());
+        verifyNoInteractions(audit);
+        verifyNoInteractions(mailer);
     }
 
+    // Thành phần: AdminProviderService.approve/reject (POST .../approve, .../reject)
+    // Kiểm tra: Không tìm thấy provider thì trả 404.
     @Test
     void unknownProviderIsNotFound() {
         when(providerProfiles.findByIdForUpdate(providerId)).thenReturn(Optional.empty());
@@ -150,6 +175,8 @@ class AdminProviderServiceTest {
         assertStatus(() -> service.reject(adminId, providerId, "no"), 404, "Provider not found");
     }
 
+    // Thành phần: AdminProviderService.approve/reject
+    // Kiểm tra: Thiếu verification PENDING thì trả 409; profile giữ PENDING và không ghi audit.
     @Test
     void missingPendingVerificationIsConflictAndChangesNothing() {
         when(providerProfiles.findByIdForUpdate(providerId)).thenReturn(Optional.of(profile));
@@ -158,7 +185,7 @@ class AdminProviderServiceTest {
         assertStatus(() -> service.approve(adminId, providerId), 409, "Provider has no pending verification");
         assertStatus(() -> service.reject(adminId, providerId, "no"), 409, "Provider has no pending verification");
         assertThat(profile.getStatus()).isEqualTo(ProviderStatus.PENDING);
-        verify(auditLogs, never()).save(any());
+        verifyNoInteractions(audit);
     }
 
     private void stubPending() {
@@ -168,12 +195,6 @@ class AdminProviderServiceTest {
         Role providerRole = new Role();
         providerRole.setCode("PROVIDER");
         when(roles.findById("PROVIDER")).thenReturn(Optional.of(providerRole));
-    }
-
-    private AuditLog savedAudit() {
-        ArgumentCaptor<AuditLog> captor = ArgumentCaptor.forClass(AuditLog.class);
-        verify(auditLogs).save(captor.capture());
-        return captor.getValue();
     }
 
     private void assertStatus(Runnable call, int status, String reason) {

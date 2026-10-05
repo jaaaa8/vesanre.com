@@ -16,6 +16,10 @@ spring:
     hibernate:
       ddl-auto: validate
     open-in-view: false
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
   mvc:
     problemdetails:
       enabled: true
@@ -23,8 +27,16 @@ spring:
 app:
   cors:
     allowed-origin: ${SPORTHUB_CORS_ALLOWED_ORIGIN:http://localhost:5173}
+  # Empty defaults: tests/CI boot without secrets (integration tests mock ImageStorage).
+  cloudinary:
+    cloud-name: ${CLOUDINARY_CLOUD_NAME:}
+    api-key: ${CLOUDINARY_API_KEY:}
+    api-secret: ${CLOUDINARY_API_SECRET:}
   security:
     jwt:
       secret: ${SPORTHUB_JWT_SECRET}
       issuer: ${SPORTHUB_JWT_ISSUER:sporthub}
       access-token-ttl-seconds: ${SPORTHUB_JWT_ACCESS_TOKEN_TTL_SECONDS:900}
+  mail:
+    # SMTP is enabled only via SPRING_MAIL_HOST/PORT/USERNAME/PASSWORD env vars; without them mails are only logged.
+    from: ${SPORTHUB_MAIL_FROM:no-reply@vesanre.local}

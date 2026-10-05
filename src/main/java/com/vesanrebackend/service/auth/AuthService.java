@@ -19,6 +19,7 @@ import com.vesanrebackend.repository.RoleRepository;
 import com.vesanrebackend.repository.ShopRepository;
 import com.vesanrebackend.repository.UserAccountRepository;
 import com.vesanrebackend.repository.UserRoleRepository;
+import com.vesanrebackend.util.SlugGenerator;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -26,8 +27,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
-import java.text.Normalizer;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -35,8 +34,6 @@ import java.util.stream.Collectors;
 @Service
 public class AuthService {
     private static final String CUSTOMER = "CUSTOMER";
-    private static final String SLUG_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789";
-    private static final SecureRandom RANDOM = new SecureRandom();
     // Valid BCrypt hash of a throwaway string; unknown emails are checked against it so response time does not reveal them.
     private static final String DUMMY_HASH = "$2a$10$6n9Hnw/SGAsp6GlpcQ3oF.yIun.C0qxpd6dTqwPNhCX27Y8mO5mjG";
 
@@ -84,7 +81,7 @@ public class AuthService {
             Shop shop = new Shop();
             shop.setOwner(providerProfile);
             shop.setName(shopName(request, legalName));
-            shop.setSlug(generateSlug(shop.getName()));
+            shop.setSlug(SlugGenerator.generate(shop.getName(), "shop"));
             shop.setDescription(normalizeOptional(request.shopDescription()));
             shop.setDefaultCancellationPolicy("{}");
             shops.save(shop);
@@ -209,24 +206,6 @@ public class AuthService {
         return new UserProfileResponse(user.getId(), user.getEmail(), user.getDisplayName(), user.getPhone(),
                 user.getUserRoles().stream().map(userRole -> userRole.getRole().getCode()).collect(Collectors.toUnmodifiableSet()),
                 providerStatus == null ? null : providerStatus.name());
-    }
-
-    // Slug = accent-stripped lowercase name + random suffix, so two shops with the same name never collide.
-    private String generateSlug(String name) {
-        String base = Normalizer.normalize(name, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}", "")
-                .replace('đ', 'd').replace('Đ', 'd')
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9]+", "-");
-        base = base.substring(0, Math.min(base.length(), 100)).replaceAll("^-+|-+$", "");
-        if (base.isEmpty()) {
-            base = "shop";
-        }
-        StringBuilder suffix = new StringBuilder("-");
-        for (int i = 0; i < 6; i++) {
-            suffix.append(SLUG_CHARS.charAt(RANDOM.nextInt(SLUG_CHARS.length())));
-        }
-        return base + suffix;
     }
 
     private String shopName(ProviderApplicationRequest request, String legalName) {

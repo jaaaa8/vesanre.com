@@ -40,6 +40,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+/**
+ * Loại test: unit - AuthService với repository và PasswordEncoder được mock (không HTTP, không DB).
+ * Dùng bởi POST /api/auth/register, POST /api/auth/login, GET/PATCH /api/profile/me, POST /api/profile/provider-application.
+ */
 class AuthServiceTest {
     private final UserAccountRepository users = mock(UserAccountRepository.class);
     private final RoleRepository roles = mock(RoleRepository.class);
@@ -50,6 +54,8 @@ class AuthServiceTest {
     private final PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
     private final AuthService service = new AuthService(users, roles, userRoles, providerProfiles, shops, verifications, passwordEncoder);
 
+    // Thành phần: AuthService.applyProvider (POST /api/profile/provider-application)
+    // Kiểm tra: Tạo profile PENDING, shop DRAFT (tên/slug đúng) và verification PENDING; user giữ role CUSTOMER, không cấp PROVIDER.
     @Test
     void applyCreatesPendingProfileDraftShopAndPendingVerification() {
         UserAccount applicant = user("owner@example.com", UserStatus.ACTIVE, "CUSTOMER");
@@ -83,6 +89,8 @@ class AuthServiceTest {
         assertThat(verification.getValue().getDocuments()).isEqualTo("[]");
     }
 
+    // Thành phần: AuthService.applyProvider (POST /api/profile/provider-application)
+    // Kiểm tra: Có shopName thì dùng làm tên shop thay cho legalName.
     @Test
     void shopNameOverridesLegalNameWhenProvided() {
         UserAccount applicant = user("owner@example.com", UserStatus.ACTIVE, "CUSTOMER");
@@ -96,6 +104,8 @@ class AuthServiceTest {
         assertThat(shop.getValue().getSlug()).matches("san-bong-a-[a-z0-9]{6}");
     }
 
+    // Thành phần: AuthService.applyProvider (POST /api/profile/provider-application)
+    // Kiểm tra: Hồ sơ REJECTED nộp lại: về PENDING, xóa verifiedAt, cập nhật thông tin, giữ slug shop, thêm verification mới.
     @Test
     void reapplyAfterRejectionResetsToPendingKeepsSlugAndAddsVerification() {
         UserAccount applicant = user("owner@example.com", UserStatus.ACTIVE, "CUSTOMER");
@@ -127,6 +137,8 @@ class AuthServiceTest {
         assertThat(verification.getValue().getStatus()).isEqualTo(VerificationStatus.PENDING);
     }
 
+    // Thành phần: AuthService.applyProvider (POST /api/profile/provider-application)
+    // Kiểm tra: PENDING/VERIFIED/SUSPENDED nộp đơn trả 409 và không tạo shop/verification.
     @Test
     void applyIsConflictWhenPendingVerifiedOrSuspended() {
         for (ProviderStatus status : new ProviderStatus[]{ProviderStatus.PENDING, ProviderStatus.VERIFIED, ProviderStatus.SUSPENDED}) {
@@ -138,6 +150,8 @@ class AuthServiceTest {
         verifyNoInteractions(shops, verifications);
     }
 
+    // Thành phần: AuthService.register (POST /api/auth/register)
+    // Kiểm tra: Đăng ký chỉ tạo CUSTOMER, không tạo hồ sơ provider/shop/verification.
     @Test
     void registerAlwaysCreatesCustomerOnly() {
         stubRegistration("CUSTOMER");
@@ -149,6 +163,8 @@ class AuthServiceTest {
         verifyNoInteractions(providerProfiles, shops, verifications);
     }
 
+    // Thành phần: AuthService.login (POST /api/auth/login)
+    // Kiểm tra: Chuẩn hóa email khi tìm; sai mật khẩu hoặc tài khoản SUSPENDED trả 401.
     @Test
     void loginNormalizesEmailAndRejectsWrongPasswordOrInactiveAccount() {
         UserAccount active = user("Member@Example.com", UserStatus.ACTIVE, "CUSTOMER");
@@ -171,6 +187,8 @@ class AuthServiceTest {
         verify(passwordEncoder, never()).matches("correct-password", "inactive-hash");
     }
 
+    // Thành phần: AuthService.login (POST /api/auth/login)
+    // Kiểm tra: Email không tồn tại vẫn gọi password check rồi mới trả 401 (xác nhận lời gọi, không đo thời gian).
     @Test
     void loginForUnknownEmailStillRunsPasswordCheckBefore401() {
         when(users.findByEmailNormalized("ghost@example.com")).thenReturn(Optional.empty());
@@ -180,6 +198,8 @@ class AuthServiceTest {
         verify(passwordEncoder).matches(anyString(), anyString());
     }
 
+    // Thành phần: AuthService.login (POST /api/auth/login)
+    // Kiểm tra: CUSTOMER có hồ sơ PENDING vẫn đăng nhập được và nhận providerStatus PENDING.
     @Test
     void customerWithPendingApplicationCanLogInAndSeesStatus() {
         UserAccount applicant = user("owner@example.com", UserStatus.ACTIVE, "CUSTOMER");
@@ -193,6 +213,8 @@ class AuthServiceTest {
         assertThat(response.providerStatus()).isEqualTo("PENDING");
     }
 
+    // Thành phần: AuthService.login (POST /api/auth/login)
+    // Kiểm tra: Provider VERIFIED đăng nhập được, nhận role và trạng thái đúng.
     @Test
     void verifiedProviderCanLogIn() {
         UserAccount provider = user("owner@example.com", UserStatus.ACTIVE, "PROVIDER");
@@ -206,6 +228,8 @@ class AuthServiceTest {
         assertThat(response.providerStatus()).isEqualTo("VERIFIED");
     }
 
+    // Thành phần: AuthService.updateProfile (PATCH /api/profile/me)
+    // Kiểm tra: Phone toàn khoảng trắng bị từ chối 400 và giữ giá trị cũ; chuỗi rỗng xóa phone về null.
     @Test
     void updateProfileRejectsWhitespaceOnlyPhoneButAllowsClearing() {
         UserAccount member = user("member@example.com", UserStatus.ACTIVE, "CUSTOMER");
@@ -222,6 +246,8 @@ class AuthServiceTest {
         assertThat(service.updateProfile(member.getId(), new UpdateProfileRequest(null, "")).phone()).isNull();
     }
 
+    // Thành phần: AuthService.profile (GET /api/profile/me và các API profile)
+    // Kiểm tra: Tài khoản SUSPENDED đọc hồ sơ bị trả 403.
     @Test
     void profileOfInactiveUserIsForbidden() {
         UserAccount suspended = user("member@example.com", UserStatus.SUSPENDED, "CUSTOMER");

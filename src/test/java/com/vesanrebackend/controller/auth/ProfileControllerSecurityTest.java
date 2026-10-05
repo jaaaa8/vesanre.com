@@ -25,6 +25,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 
+/**
+ * Loại test: @WebMvcTest + MockMvc (AuthService được mock) - kiểm tra xác thực, phân quyền và CORS.
+ * API: /api/profile/me, /api/profile/provider, /api/profile/admin, /api/profile/provider-application.
+ */
 @WebMvcTest(value = ProfileController.class, properties = {
         "app.security.jwt.secret=test-secret-at-least-thirty-two-bytes-long",
         "app.cors.allowed-origin=http://localhost:5173"})
@@ -36,18 +40,24 @@ class ProfileControllerSecurityTest {
     @MockitoBean
     private AuthService authService;
 
+    // API: GET /api/profile/me
+    // Kiểm tra: Không có token thì trả 401.
     @Test
     void profileRequiresBearerToken() throws Exception {
         mvc.perform(get("/api/profile/me"))
                 .andExpect(status().isUnauthorized());
     }
 
+    // API: GET /api/profile/provider
+    // Kiểm tra: CUSTOMER bị chặn 403.
     @Test
     void customerCannotReadProviderProfile() throws Exception {
         mvc.perform(get("/api/profile/provider").with(SecurityMockMvcRequestPostProcessors.user("customer").roles("CUSTOMER")))
                 .andExpect(status().isForbidden());
     }
 
+    // API: GET /api/profile/provider
+    // Kiểm tra: JWT có ROLE_PROVIDER được phép, trả 200.
     @Test
     void providerCanReadProviderProfile() throws Exception {
         UUID id = UUID.randomUUID();
@@ -60,6 +70,8 @@ class ProfileControllerSecurityTest {
                 .andExpect(status().isOk());
     }
 
+    // API: POST /api/profile/provider-application
+    // Kiểm tra: Không token 401; JWT CUSTOMER (chưa cần role PROVIDER) nộp đơn được, trả 201.
     @Test
     void providerApplicationRequiresTokenButNoRole() throws Exception {
         UUID id = UUID.randomUUID();
@@ -76,12 +88,16 @@ class ProfileControllerSecurityTest {
                 .andExpect(status().isCreated());
     }
 
+    // API: GET /api/profile/admin
+    // Kiểm tra: PROVIDER bị chặn 403.
     @Test
     void providerCannotReadAdminProfile() throws Exception {
         mvc.perform(get("/api/profile/admin").with(SecurityMockMvcRequestPostProcessors.user("provider").roles("PROVIDER")))
                 .andExpect(status().isForbidden());
     }
 
+    // API: OPTIONS /api/profile/me (CORS preflight)
+    // Kiểm tra: Origin http://localhost:5173 với method PUT/DELETE được phép, trả 200.
     @Test
     void preflightAllowsPutAndDelete() throws Exception {
         for (String method : new String[]{"PUT", "DELETE"}) {
@@ -92,6 +108,8 @@ class ProfileControllerSecurityTest {
         }
     }
 
+    // API: OPTIONS /api/profile/me (CORS preflight)
+    // Kiểm tra: Preflight GET từ Vite trả 200 và header Access-Control-Allow-Origin đúng origin.
     @Test
     void vitePreflightIsAllowed() throws Exception {
         mvc.perform(options("/api/profile/me")

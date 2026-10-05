@@ -1,9 +1,11 @@
 package com.vesanrebackend.controller.admin;
 
 import com.vesanrebackend.dto.admin.AdminProviderResponse;
+import com.vesanrebackend.dto.admin.PageResponse;
 import com.vesanrebackend.dto.admin.RejectProviderRequest;
 import com.vesanrebackend.entity.enums.ProviderStatus;
 import com.vesanrebackend.service.admin.AdminProviderService;
+import com.vesanrebackend.util.Paging;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -16,7 +18,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -30,8 +31,10 @@ public class AdminProviderController {
     }
 
     @GetMapping
-    public List<AdminProviderResponse> list(@RequestParam(defaultValue = "PENDING") ProviderStatus status) {
-        return adminProviders.list(status);
+    public PageResponse<AdminProviderResponse> list(@RequestParam(defaultValue = "PENDING") ProviderStatus status,
+                                                    @RequestParam(defaultValue = "0") int page,
+                                                    @RequestParam(defaultValue = "20") int size) {
+        return adminProviders.list(status, Paging.of(page, size, "userId")); // ProviderProfile id is userId
     }
 
     @PostMapping("/{userId}/approve")
