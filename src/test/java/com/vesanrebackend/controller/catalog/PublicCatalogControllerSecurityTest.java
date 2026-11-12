@@ -2,6 +2,7 @@ package com.vesanrebackend.controller.catalog;
 
 import com.vesanrebackend.security.CorsConfig;
 import com.vesanrebackend.security.SecurityConfig;
+import com.vesanrebackend.service.catalog.PublicCatalogService;
 import com.vesanrebackend.service.catalog.PublicVenueSearchService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -9,6 +10,8 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -27,6 +30,8 @@ class PublicCatalogControllerSecurityTest {
 
     @MockitoBean
     private PublicVenueSearchService search;
+    @MockitoBean
+    private PublicCatalogService publicCatalog;
 
     // API: GET /api/catalog/venues, GET /api/catalog/locations
     // Kiểm tra: không token vẫn trả 200.
@@ -34,5 +39,12 @@ class PublicCatalogControllerSecurityTest {
     void anonymousCanSearchAndListLocations() throws Exception {
         mvc.perform(get("/api/catalog/venues")).andExpect(status().isOk());
         mvc.perform(get("/api/catalog/locations")).andExpect(status().isOk());
+    }
+
+    // API: GET /api/catalog/venues/{id}
+    // Kiểm tra: không token vẫn trả 200.
+    @Test
+    void anonymousCanReadVenueDetail() throws Exception {
+        mvc.perform(get("/api/catalog/venues/" + UUID.randomUUID())).andExpect(status().isOk());
     }
 }

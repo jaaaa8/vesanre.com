@@ -2,23 +2,29 @@ package com.vesanrebackend.controller.catalog;
 
 import com.vesanrebackend.dto.admin.PageResponse;
 import com.vesanrebackend.dto.catalog.LocationResponse;
+import com.vesanrebackend.dto.catalog.PublicVenueDetailResponse;
 import com.vesanrebackend.dto.catalog.VenueCardResponse;
+import com.vesanrebackend.service.catalog.PublicCatalogService;
 import com.vesanrebackend.service.catalog.PublicVenueSearchService;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/catalog")
 public class PublicCatalogController {
     private final PublicVenueSearchService search;
+    private final PublicCatalogService publicCatalog;
 
-    public PublicCatalogController(PublicVenueSearchService search) {
+    public PublicCatalogController(PublicVenueSearchService search, PublicCatalogService publicCatalog) {
         this.search = search;
+        this.publicCatalog = publicCatalog;
     }
 
     @GetMapping("/venues")
@@ -37,5 +43,10 @@ public class PublicCatalogController {
     @GetMapping("/locations")
     public List<LocationResponse> locations() {
         return search.locations();
+    }
+
+    @GetMapping("/venues/{id}")
+    public PublicVenueDetailResponse venue(@PathVariable UUID id) {
+        return publicCatalog.detail(id);
     }
 }

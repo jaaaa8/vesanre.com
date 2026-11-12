@@ -126,6 +126,63 @@ class PublicCatalogIntegrationTest extends AdminApiTestSupport {
         }
     }
 
+    // API: GET /api/catalog/venues/{id}
+    // Kiểm tra: chi tiết chỉ có court ACTIVE, rule active, ảnh/logo/tiện ích/giờ; không lộ status, slug, pendingChange.
+    @Test
+    void detailShowsOnlyPublicData() {
+        RestClient client = client();
+        Provider p = verifiedProvider();
+        UUID venue = activeVenue(p, "Detail", uniqueCity(), "D1");
+        UUID c1 = court(p.token(), venue, "C1");
+        sport(p.token(), c1, "BADMINTON");
+        hours(p.token(), c1, "06:00", "22:00", null);
+        prices(p.token(), c1, 360, 720, 100000, 720, 1320, 80000);
+        jdbc.update("UPDATE sporthub.court_pricing_rules SET is_active = false WHERE court_id = ? AND price_per_hour = 80000", c1);
+        UUID c2 = court(p.token(), venue, "C2");
+        assertThat(patch(client, "/api/provider/courts/" + c2, Map.of("status", "INACTIVE"), p.token())
+                .getStatusCode().value()).isEqualTo(200);
+        assertThat(put(client, "/api/provider/venues/" + venue + "/amenities",
+                List.of(Map.of("amenityId", jdbc.queryForObject("SELECT id FROM sporthub.amenities WHERE code = 'PARKING'", UUID.class).toString())),
+                p.token()).getStatusCode().value()).isEqualTo(200);
+        String key = "cover-" + UUID.randomUUID();
+        jdbc.update("INSERT INTO sporthub.venue_images (id, venue_id, storage_key, sort_order, is_cover) VALUES (gen_random_uuid(), ?, ?, 0, true)",
+                venue, key);
+        jdbc.update("UPDATE sporthub.shops SET logo_storage_key = 'logo-k' WHERE owner_user_id = ?", p.userId());
+
+        ResponseEntity<Map> response = get(client, "/api/catalog/venues/" + venue, null);
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        Map<String, Object> body = response.getBody();
+        List<Map<String, Object>> courts = (List<Map<String, Object>>) body.get("courts");
+        assertThat(courts).extracting(c -> c.get("code")).containsExactly("C1");
+        Map<String, Object> court = courts.get(0);
+        assertThat((List<Map<String, Object>>) court.get("pricingRules")).hasSize(7)
+                .allSatisfy(r -> assertThat(new BigDecimal(String.valueOf(r.get("pricePerHour")))).isEqualByComparingTo("100000"));
+        assertThat((List<?>) court.get("operatingHours")).hasSize(7);
+        assertThat(((List<Map<String, Object>>) body.get("amenities")).get(0).get("code")).isEqualTo("PARKING");
+        assertThat(((List<Map<String, Object>>) body.get("images")).get(0).get("url")).isEqualTo("https://img.test/" + key);
+        assertThat(((Map<String, Object>) body.get("shop")).get("logoUrl")).isEqualTo("https://img.test/logo-k");
+        assertThat(new BigDecimal(String.valueOf(body.get("fromPrice")))).isEqualByComparingTo("100000");
+        assertThat(body).doesNotContainKeys("status", "slug", "pendingChange");
+        assertThat(court).doesNotContainKeys("status", "slug", "pendingChange");
+    }
+
+    // API: GET /api/catalog/venues/{id}
+    // Kiểm tra: venue DRAFT, PENDING_REVIEW, SUSPENDED và UUID ngẫu nhiên đều trả 404.
+    @Test
+    void nonPublicVenueDetailIs404() {
+        RestClient client = client();
+        Provider p = verifiedProvider();
+        String city = uniqueCity();
+        UUID draft = draftVenue(p, "Draft", city, "D1");
+        UUID pending = draftVenue(p, "Pending", city, "D1");
+        jdbc.update("UPDATE sporthub.venues SET status = 'PENDING_REVIEW' WHERE id = ?", pending);
+        UUID suspended = draftVenue(p, "Suspended", city, "D1");
+        jdbc.update("UPDATE sporthub.venues SET status = 'SUSPENDED' WHERE id = ?", suspended);
+        for (UUID id : List.of(draft, pending, suspended, UUID.randomUUID())) {
+            assertThat(get(client, "/api/catalog/venues/" + id, null).getStatusCode().value()).as(id.toString()).isEqualTo(404);
+        }
+    }
+
     // ---- helpers (Task 3, 4 dùng lại) ----
 
     String uniqueCity() {
