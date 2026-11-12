@@ -1,11 +1,13 @@
 package com.vesanrebackend.controller.catalog;
 
 import com.vesanrebackend.dto.admin.PageResponse;
+import com.vesanrebackend.dto.catalog.CourtAvailabilityResponse;
 import com.vesanrebackend.dto.catalog.LocationResponse;
 import com.vesanrebackend.dto.catalog.PublicVenueDetailResponse;
 import com.vesanrebackend.dto.catalog.VenueCardResponse;
 import com.vesanrebackend.service.catalog.PublicCatalogService;
 import com.vesanrebackend.service.catalog.PublicVenueSearchService;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -13,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -48,5 +51,11 @@ public class PublicCatalogController {
     @GetMapping("/venues/{id}")
     public PublicVenueDetailResponse venue(@PathVariable UUID id) {
         return publicCatalog.detail(id);
+    }
+
+    @GetMapping("/courts/{id}/availability")
+    public CourtAvailabilityResponse availability(@PathVariable UUID id,
+                                                  @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return publicCatalog.availability(id, date);
     }
 }

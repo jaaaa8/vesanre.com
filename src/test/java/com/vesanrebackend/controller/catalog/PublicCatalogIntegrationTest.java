@@ -9,6 +9,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -183,7 +186,77 @@ class PublicCatalogIntegrationTest extends AdminApiTestSupport {
         }
     }
 
+    // API: GET /api/catalog/courts/{id}/availability
+    // Kiểm tra: block ACTIVE làm slot unavailable, block RELEASED không ảnh hưởng, ngày closed trả closed=true và slots rỗng.
+    @Test
+    void availabilityMarksBlocksAndClosedDays() {
+        RestClient client = client();
+        Provider p = verifiedProvider();
+        ZoneId zone = ZoneId.of("Asia/Ho_Chi_Minh");
+        LocalDate d1 = LocalDate.now(zone).plusDays(1);
+        LocalDate d2 = d1.plusDays(1);
+        UUID venue = activeVenue(p, "Avail", uniqueCity(), "D1");
+        UUID court = court(p.token(), venue, "C1");
+        hours(p.token(), court, "06:00", "22:00", d2.getDayOfWeek().getValue() - 1);
+        prices(p.token(), court, 0, 1440, 100000);
+        jdbc.update("INSERT INTO sporthub.court_schedule_blocks (id, court_id, block_kind, state, start_at, end_at, created_by, reason)"
+                        + " VALUES (gen_random_uuid(), ?, 'MAINTENANCE', 'ACTIVE', ?, ?, ?, 'IT')", court,
+                instant(d1, 8, zone), instant(d1, 9, zone), p.userId());
+        jdbc.update("INSERT INTO sporthub.court_schedule_blocks (id, court_id, block_kind, state, start_at, end_at, created_by, reason, released_at)"
+                        + " VALUES (gen_random_uuid(), ?, 'MAINTENANCE', 'RELEASED', ?, ?, ?, 'IT', now())", court,
+                instant(d1, 10, zone), instant(d1, 11, zone), p.userId());
+
+        Map<String, Object> day1 = get(client, "/api/catalog/courts/" + court + "/availability?date=" + d1, null).getBody();
+        assertThat(day1.get("closed")).isEqualTo(false);
+        assertThat(day1.get("timezone")).isEqualTo("Asia/Ho_Chi_Minh");
+        List<Map<String, Object>> slots = (List<Map<String, Object>>) day1.get("slots");
+        assertThat(slots).hasSize(16);
+        Map<String, Object> blocked = slots.stream().filter(s -> ((String) s.get("start")).startsWith("08:00")).findFirst().orElseThrow();
+        Map<String, Object> released = slots.stream().filter(s -> ((String) s.get("start")).startsWith("10:00")).findFirst().orElseThrow();
+        assertThat(blocked.get("available")).isEqualTo(false);
+        assertThat(released.get("available")).isEqualTo(true);
+        assertThat(new BigDecimal(String.valueOf(released.get("price")))).isEqualByComparingTo("100000");
+
+        Map<String, Object> day2 = get(client, "/api/catalog/courts/" + court + "/availability?date=" + d2, null).getBody();
+        assertThat(day2.get("closed")).isEqualTo(true);
+        assertThat((List<?>) day2.get("slots")).isEmpty();
+    }
+
+    // API: GET /api/catalog/courts/{id}/availability
+    // Kiểm tra: court INACTIVE, venue SUSPENDED, UUID lạ trả 404; date ngoài [hôm nay, +30], sai định dạng, thiếu trả 400; +30 trả 200.
+    @Test
+    void availabilityRejectsNonPublicCourtAndBadDates() {
+        RestClient client = client();
+        Provider p = verifiedProvider();
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"));
+        UUID venue = activeVenue(p, "Avail2", uniqueCity(), "D1");
+        UUID ok = court(p.token(), venue, "C1");
+        hours(p.token(), ok, "06:00", "22:00", null);
+        prices(p.token(), ok, 0, 1440, 100000);
+        UUID inactive = court(p.token(), venue, "C2");
+        assertThat(patch(client, "/api/provider/courts/" + inactive, Map.of("status", "INACTIVE"), p.token())
+                .getStatusCode().value()).isEqualTo(200);
+        UUID suspended = activeVenue(p, "Avail3", uniqueCity(), "D1");
+        UUID inSuspended = court(p.token(), suspended, "C1");
+        jdbc.update("UPDATE sporthub.venues SET status = 'SUSPENDED' WHERE id = ?", suspended);
+
+        for (UUID id : List.of(inactive, inSuspended, UUID.randomUUID())) {
+            assertThat(get(client, "/api/catalog/courts/" + id + "/availability?date=" + today, null).getStatusCode().value())
+                    .as(id.toString()).isEqualTo(404);
+        }
+        String base = "/api/catalog/courts/" + ok + "/availability";
+        for (String query : List.of("?date=" + today.plusDays(31), "?date=" + today.minusDays(1), "?date=abc", "")) {
+            assertThat(get(client, base + query, null).getStatusCode().value()).as(query).isEqualTo(400);
+        }
+        assertThat(get(client, base + "?date=" + today.plusDays(30), null).getStatusCode().value()).isEqualTo(200);
+    }
+
     // ---- helpers (Task 3, 4 dùng lại) ----
+
+    // Timestamp, not LocalDateTime: a LocalDateTime would be read in the JVM timezone.
+    Timestamp instant(LocalDate date, int hour, ZoneId zone) {
+        return Timestamp.from(date.atTime(hour, 0).atZone(zone).toInstant());
+    }
 
     String uniqueCity() {
         return "IT-" + UUID.randomUUID().toString().substring(0, 8);

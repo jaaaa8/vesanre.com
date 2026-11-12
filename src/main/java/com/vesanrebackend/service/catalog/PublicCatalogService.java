@@ -1,13 +1,18 @@
 package com.vesanrebackend.service.catalog;
 
+import com.vesanrebackend.dto.catalog.CourtAvailabilityResponse;
 import com.vesanrebackend.dto.catalog.PublicVenueDetailResponse;
 import com.vesanrebackend.dto.provider.CourtDetailResponse;
 import com.vesanrebackend.dto.provider.VenueDetailResponse;
 import com.vesanrebackend.entity.court.Court;
+import com.vesanrebackend.entity.court.CourtOperatingHour;
+import com.vesanrebackend.entity.court.CourtPricingRule;
+import com.vesanrebackend.entity.court.CourtScheduleBlock;
 import com.vesanrebackend.entity.enums.CourtStatus;
 import com.vesanrebackend.entity.enums.VenueStatus;
 import com.vesanrebackend.entity.venue.Venue;
 import com.vesanrebackend.repository.CourtRepository;
+import com.vesanrebackend.repository.CourtScheduleBlockRepository;
 import com.vesanrebackend.repository.VenueAmenityRepository;
 import com.vesanrebackend.repository.VenueRepository;
 import com.vesanrebackend.service.provider.ProviderImageService;
@@ -18,6 +23,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
@@ -28,14 +36,16 @@ public class PublicCatalogService {
     private final VenueRepository venues;
     private final CourtRepository courts;
     private final VenueAmenityRepository venueAmenities;
+    private final CourtScheduleBlockRepository blocks;
     private final ProviderImageService images;
     private final ImageStorage storage;
 
     public PublicCatalogService(VenueRepository venues, CourtRepository courts, VenueAmenityRepository venueAmenities,
-                                ProviderImageService images, ImageStorage storage) {
+                                CourtScheduleBlockRepository blocks, ProviderImageService images, ImageStorage storage) {
         this.venues = venues;
         this.courts = courts;
         this.venueAmenities = venueAmenities;
+        this.blocks = blocks;
         this.images = images;
         this.storage = storage;
     }
@@ -58,6 +68,30 @@ public class PublicCatalogService {
                         .map(a -> new VenueDetailResponse.AmenityItem(a.getAmenity().getId(), a.getAmenity().getCode(),
                                 a.getAmenity().getName(), a.getDetails())).toList(),
                 courtItems, fromPrice);
+    }
+
+    @Transactional(readOnly = true)
+    public CourtAvailabilityResponse availability(UUID courtId, LocalDate date) {
+        Court court = courts.findById(courtId)
+                .filter(c -> c.getStatus() == CourtStatus.ACTIVE && c.getVenue().getStatus() == VenueStatus.ACTIVE)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Court not found"));
+        ZoneId zone = ZoneId.of(court.getVenue().getTimezone());
+        LocalDate today = LocalDate.now(zone);
+        if (date.isBefore(today) || date.isAfter(today.plusDays(30))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "date must be within the next 30 days");
+        }
+        int weekday = date.getDayOfWeek().getValue() - 1;
+        CourtOperatingHour hours = court.getOperatingHours().stream()
+                .filter(h -> h.getId().getWeekday().intValue() == weekday).findFirst().orElse(null);
+        List<CourtPricingRule> rules = court.getPricingRules().stream()
+                .filter(r -> r.getIsActive() && r.getWeekday().intValue() == weekday).toList();
+        // Query the whole local day so a block starting the previous evening still counts.
+        List<CourtScheduleBlock> active = blocks.findActiveOverlapping(courtId,
+                date.atStartOfDay(zone).toInstant(), date.plusDays(1).atStartOfDay(zone).toInstant());
+        return new CourtAvailabilityResponse(courtId, date, zone.getId(), hours == null || hours.getIsClosed(),
+                court.getBookingStepMinutes(), court.getMinBookingMinutes(), court.getMaxBookingMinutes(),
+                AvailabilityCalculator.slots(date, zone, hours, court.getBookingStepMinutes(), rules, active,
+                        Instant.now()));
     }
 
     private PublicVenueDetailResponse.CourtItem toItem(Court c) {
