@@ -65,6 +65,36 @@ class CoinWalletIntegrationTest extends BookingApiTestSupport {
         assertThat(balance(c.userId())).isEqualTo(100);
     }
 
+    // Kiểm tra: cùng một khách đặt đồng thời 2 sân (mỗi cái 30 coin) khi chỉ có 40 coin -> một 201, một 409.
+    @Test
+    void concurrentBookingsSameCustomerOnlyOneAffordable() throws Exception {
+        BookableCourt bc = bookableCourt();
+        Customer c = customer();
+        seedCoins(c.userId(), 40);
+        java.time.LocalDate date = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).plusDays(1);
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+            List<java.util.concurrent.Future<ResponseEntity<Map>>> futures = new java.util.ArrayList<>();
+            for (String[] t : new String[][]{{"18:00", "19:00"}, {"20:00", "21:00"}}) {
+                futures.add(pool.submit(() -> {
+                    go.await();
+                    return post(client(), "/api/bookings", Map.of("courtId", bc.courtId().toString(),
+                            "date", date.toString(), "startTime", t[0], "endTime", t[1]), c.token());
+                }));
+            }
+            go.countDown();
+            List<ResponseEntity<Map>> results = new java.util.ArrayList<>();
+            for (var f : futures) results.add(f.get());
+            assertThat(results).extracting(r -> r.getStatusCode().value()).containsExactlyInAnyOrder(201, 409);
+            ResponseEntity<Map> loser = results.get(0).getStatusCode().value() == 409 ? results.get(0) : results.get(1);
+            assertThat(loser.getBody().get("detail")).isEqualTo("Insufficient coins");
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(balance(c.userId())).isEqualTo(10).isEqualTo(ledgerSum(c.userId()));
+    }
+
     // Kiểm tra: không token -> 401.
     @Test
     void walletRequiresLogin() {
