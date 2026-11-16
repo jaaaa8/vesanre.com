@@ -14,9 +14,13 @@ public final class Paging {
 
     // Admin queues: oldest first; the id tiebreak keeps pages stable when createdAt collides.
     public static Pageable of(int page, int size, String idProperty) {
+        return of(page, size, Sort.by("createdAt", idProperty));
+    }
+
+    public static Pageable of(int page, int size, Sort sort) {
         if (page < 0 || size < 1) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "page must be >= 0 and size >= 1");
         }
-        return PageRequest.of(page, Math.min(size, MAX_SIZE), Sort.by("createdAt", idProperty));
+        return PageRequest.of(page, Math.min(size, MAX_SIZE), sort);
     }
 }

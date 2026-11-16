@@ -23,7 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
-import java.time.Instant;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Comparator;
@@ -39,15 +39,18 @@ public class PublicCatalogService {
     private final CourtScheduleBlockRepository blocks;
     private final ProviderImageService images;
     private final ImageStorage storage;
+    private final Clock clock;
 
     public PublicCatalogService(VenueRepository venues, CourtRepository courts, VenueAmenityRepository venueAmenities,
-                                CourtScheduleBlockRepository blocks, ProviderImageService images, ImageStorage storage) {
+                                CourtScheduleBlockRepository blocks, ProviderImageService images, ImageStorage storage,
+                                Clock clock) {
         this.venues = venues;
         this.courts = courts;
         this.venueAmenities = venueAmenities;
         this.blocks = blocks;
         this.images = images;
         this.storage = storage;
+        this.clock = clock;
     }
 
     @Transactional(readOnly = true)
@@ -76,7 +79,7 @@ public class PublicCatalogService {
                 .filter(c -> c.getStatus() == CourtStatus.ACTIVE && c.getVenue().getStatus() == VenueStatus.ACTIVE)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Court not found"));
         ZoneId zone = ZoneId.of(court.getVenue().getTimezone());
-        LocalDate today = LocalDate.now(zone);
+        LocalDate today = LocalDate.now(clock.withZone(zone));
         if (date.isBefore(today) || date.isAfter(today.plusDays(30))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "date must be within the next 30 days");
         }
@@ -91,7 +94,7 @@ public class PublicCatalogService {
         return new CourtAvailabilityResponse(courtId, date, zone.getId(), hours == null || hours.getIsClosed(),
                 court.getBookingStepMinutes(), court.getMinBookingMinutes(), court.getMaxBookingMinutes(),
                 AvailabilityCalculator.slots(date, zone, hours, court.getBookingStepMinutes(), rules, active,
-                        Instant.now()));
+                        clock.instant()));
     }
 
     private PublicVenueDetailResponse.CourtItem toItem(Court c) {

@@ -1,7 +1,5 @@
 package com.vesanrebackend.entity.booking;
 
-import com.vesanrebackend.entity.payment.PaymentIntent;
-import com.vesanrebackend.entity.payment.RefundRequest;
 import com.vesanrebackend.entity.court.CourtScheduleBlock;
 import com.vesanrebackend.entity.account.UserAccount;
 import com.vesanrebackend.entity.enums.BookingStatus;
@@ -63,7 +61,7 @@ public class Booking {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     // Trạng thái hiện tại.
-    private BookingStatus status = BookingStatus.HELD;
+    private BookingStatus status = BookingStatus.CONFIRMED;
 
     @Column(name = "hold_expires_at", columnDefinition = "timestamp with time zone")
     // Thời điểm giữ chỗ hết hạn.
@@ -92,6 +90,10 @@ public class Booking {
     @Column(name = "deposit_amount", nullable = false, precision = 12, scale = 2)
     // Số tiền đặt cọc.
     private BigDecimal depositAmount;
+
+    @Column(name = "deposit_coins", nullable = false)
+    // Số coin đặt cọc; deposit_amount = deposit_coins * 1.000.
+    private Long depositCoins;
 
     @Column(name = "currency", nullable = false, length = 3)
     // Mã tiền tệ ISO 4217.
@@ -141,14 +143,6 @@ public class Booking {
     @OneToMany(mappedBy = "booking")
     // Lịch sử trạng thái của đơn.
     private List<BookingStatusHistory> statusHistory = new ArrayList<>();
-
-    @OneToMany(mappedBy = "booking")
-    // Danh sách ý định thanh toán.
-    private List<PaymentIntent> paymentIntents = new ArrayList<>();
-
-    @OneToMany(mappedBy = "booking")
-    // Danh sách yêu cầu hoàn tiền.
-    private List<RefundRequest> refundRequests = new ArrayList<>();
 
     @OneToOne(mappedBy = "booking", fetch = FetchType.LAZY)
     // Đánh giá gắn với đơn đặt sân.
