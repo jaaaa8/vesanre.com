@@ -84,6 +84,27 @@ public class BookingLifecycle {
         return b;
     }
 
+    /** Pays the deposit into the shop wallet once the booking has ended. Lock order: booking, then shop wallet. */
+    @Transactional
+    public void complete(UUID bookingId) {
+        Booking b = bookings.findByIdForUpdate(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found"));
+        if (b.getStatus() != BookingStatus.CONFIRMED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Booking is " + b.getStatus());
+        }
+        Instant now = clock.instant();
+        var block = b.getScheduleBlock();
+        if (block.getEndAt().isAfter(now)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Booking has not ended");
+        }
+        b.setStatus(BookingStatus.COMPLETED);
+        b.setCompletedAt(now);
+        CoinWallet shopWallet = wallets.lockShopWallet(block.getCourt().getVenue().getShop().getId());
+        wallets.apply(shopWallet, CoinEntryType.BOOKING_PAYOUT, b.getDepositCoins(), b, null);
+        record(b, BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingActorType.SYSTEM, null, "COMPLETED",
+                b.getDepositCoins());
+    }
+
     private void record(Booking b, BookingStatus from, BookingStatus to, BookingActorType actor, UUID actorUserId,
                         String reasonCode, long coins) {
         BookingStatusHistory h = new BookingStatusHistory();
