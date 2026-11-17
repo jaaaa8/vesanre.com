@@ -3,6 +3,7 @@ package com.vesanrebackend.controller.booking;
 import com.vesanrebackend.dto.admin.PageResponse;
 import com.vesanrebackend.dto.booking.BookingDetail;
 import com.vesanrebackend.dto.booking.BookingSummary;
+import com.vesanrebackend.dto.booking.CancelBookingRequest;
 import com.vesanrebackend.dto.booking.CreateBookingRequest;
 import com.vesanrebackend.entity.enums.BookingStatus;
 import com.vesanrebackend.service.booking.BookingService;
@@ -49,5 +50,11 @@ public class BookingController {
     @GetMapping("/{id}")
     public BookingDetail get(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
         return bookings.get(UUID.fromString(jwt.getSubject()), id);
+    }
+
+    @PostMapping("/{id}/cancel")
+    public BookingDetail cancel(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+                                @Valid @RequestBody(required = false) CancelBookingRequest req) {
+        return bookings.cancel(UUID.fromString(jwt.getSubject()), id, req == null ? null : req.reason());
     }
 }

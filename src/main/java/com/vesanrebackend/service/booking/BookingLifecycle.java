@@ -3,18 +3,25 @@ package com.vesanrebackend.service.booking;
 import com.vesanrebackend.entity.OutboxEvent;
 import com.vesanrebackend.entity.booking.Booking;
 import com.vesanrebackend.entity.booking.BookingStatusHistory;
+import com.vesanrebackend.entity.coin.CoinWallet;
 import com.vesanrebackend.entity.enums.BookingActorType;
 import com.vesanrebackend.entity.enums.BookingStatus;
+import com.vesanrebackend.entity.enums.CancellationSource;
+import com.vesanrebackend.entity.enums.CoinEntryType;
+import com.vesanrebackend.entity.enums.ScheduleBlockState;
 import com.vesanrebackend.repository.BookingRepository;
 import com.vesanrebackend.repository.BookingStatusHistoryRepository;
 import com.vesanrebackend.repository.OutboxEventRepository;
 import com.vesanrebackend.repository.UserAccountRepository;
 import com.vesanrebackend.service.coin.CoinWalletService;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -46,6 +53,35 @@ public class BookingLifecycle {
     public void recordCreated(Booking booking, UUID actorUserId) {
         record(booking, null, BookingStatus.CONFIRMED, BookingActorType.CUSTOMER, actorUserId, "BOOKED",
                 booking.getDepositCoins());
+    }
+
+    /** Lock order (spec section 6): booking, then user wallet, then the block is released. */
+    @Transactional
+    public Booking cancel(UUID bookingId, CancellationSource source, UUID actorUserId, String reason) {
+        Booking b = bookings.findByIdForUpdate(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found"));
+        if (b.getStatus() != BookingStatus.CONFIRMED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Booking is " + b.getStatus());
+        }
+        Instant now = clock.instant();
+        var block = b.getScheduleBlock();
+        if (!now.isBefore(block.getStartAt())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Booking already started");
+        }
+        b.setStatus(BookingStatus.CANCELLED);
+        b.setCancelledAt(now);
+        b.setCancellationSource(source);
+        b.setCancelledBy(users.getReferenceById(actorUserId));
+        b.setCancellationReason(reason);
+        CoinWallet wallet = wallets.lockUserWallet(b.getCustomer().getId());
+        wallets.apply(wallet, CoinEntryType.BOOKING_DEPOSIT_RETURN, b.getDepositCoins(), b, null);
+        block.setState(ScheduleBlockState.RELEASED);
+        block.setReleasedAt(now);
+        boolean byCustomer = source == CancellationSource.CUSTOMER;
+        record(b, BookingStatus.CONFIRMED, BookingStatus.CANCELLED,
+                byCustomer ? BookingActorType.CUSTOMER : BookingActorType.PROVIDER, actorUserId,
+                byCustomer ? "CANCELLED_BY_CUSTOMER" : "CANCELLED_BY_PROVIDER", b.getDepositCoins());
+        return b;
     }
 
     private void record(Booking b, BookingStatus from, BookingStatus to, BookingActorType actor, UUID actorUserId,

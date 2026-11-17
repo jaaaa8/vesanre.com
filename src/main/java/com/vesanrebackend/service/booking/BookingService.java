@@ -11,6 +11,7 @@ import com.vesanrebackend.entity.court.CourtOperatingHour;
 import com.vesanrebackend.entity.court.CourtPricingRule;
 import com.vesanrebackend.entity.court.CourtScheduleBlock;
 import com.vesanrebackend.entity.enums.BookingStatus;
+import com.vesanrebackend.entity.enums.CancellationSource;
 import com.vesanrebackend.entity.enums.CoinEntryType;
 import com.vesanrebackend.entity.enums.CourtStatus;
 import com.vesanrebackend.entity.enums.ScheduleBlockKind;
@@ -168,6 +169,15 @@ public class BookingService {
         return bookings.findById(bookingId).filter(b -> b.getCustomer().getId().equals(customerId))
                 .map(b -> detail(b, json, false))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found"));
+    }
+
+    @Transactional
+    public BookingDetail cancel(UUID customerId, UUID bookingId, String reason) {
+        // Boolean check only: loading the entity first would make the locked read return a stale instance.
+        if (!bookings.existsByIdAndCustomerId(bookingId, customerId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found");
+        }
+        return detail(lifecycle.cancel(bookingId, CancellationSource.CUSTOMER, customerId, reason), json, false);
     }
 
     public static BookingDetail detail(Booking b, ObjectMapper json, boolean withCustomer) {
