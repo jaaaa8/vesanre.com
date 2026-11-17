@@ -3,7 +3,9 @@ package com.vesanrebackend.controller.booking;
 import com.vesanrebackend.BookingApiTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.RestClient;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.HashMap;
@@ -19,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Loại test: integration HTTP thật + PostgreSQL (kế thừa BookingApiTestSupport).
- * API: POST/GET /api/bookings.
+ * API: POST/GET /api/bookings, POST /api/bookings/{id}/cancel, /api/provider/bookings, /api/provider/wallet.
  */
 class BookingIntegrationTest extends BookingApiTestSupport {
     private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
@@ -202,5 +204,117 @@ class BookingIntegrationTest extends BookingApiTestSupport {
         jdbc.update("UPDATE sporthub.venues SET status = 'SUSPENDED' WHERE id = ?", bc.venueId());
         assertThat(book(c, bc.courtId(), tomorrow(), "18:00", "19:00").getStatusCode().value()).isEqualTo(404);
         assertThat(balance(c.userId())).isEqualTo(100);
+    }
+
+    // Kiểm tra (spec case 4): khách hủy -> trả coin, nhả slot, history/outbox CANCELLED; hủy lần 2 -> 409.
+    @Test
+    @SuppressWarnings("unchecked")
+    void customerCancelReturnsCoinsAndFreesSlot() {
+        BookableCourt bc = bookableCourt();
+        Customer c = customer();
+        seedCoins(c.userId(), 100);
+        String id = (String) book(c, bc.courtId(), tomorrow(), "18:00", "19:00").getBody().get("id");
+        assertThat(balance(c.userId())).isEqualTo(70);
+        ResponseEntity<Map> r = post(client(), "/api/bookings/" + id + "/cancel", Map.of(), c.token());
+        assertThat(r.getStatusCode().value()).isEqualTo(200);
+        assertThat(r.getBody().get("status")).isEqualTo("CANCELLED");
+        assertThat(r.getBody().get("cancellationSource")).isEqualTo("CUSTOMER");
+        assertThat(balance(c.userId())).isEqualTo(100).isEqualTo(ledgerSum(c.userId()));
+        assertThat(count("SELECT count(*) FROM sporthub.coin_ledger_entries WHERE booking_id = ?::uuid "
+                + "AND entry_type = 'BOOKING_DEPOSIT_RETURN' AND amount = 30", id)).isEqualTo(1);
+        assertThat(count("SELECT count(*) FROM sporthub.court_schedule_blocks s JOIN sporthub.bookings k "
+                + "ON k.schedule_block_id = s.id WHERE k.id = ?::uuid AND s.state = 'RELEASED' "
+                + "AND s.released_at IS NOT NULL", id)).isEqualTo(1);
+        assertThat(count("SELECT count(*) FROM sporthub.booking_status_history WHERE booking_id = ?::uuid "
+                + "AND from_status = 'CONFIRMED' AND to_status = 'CANCELLED'", id)).isEqualTo(1);
+        assertThat(count("SELECT count(*) FROM sporthub.outbox_events WHERE event_key = ?", id + ":CANCELLED"))
+                .isEqualTo(1);
+        List<Map<String, Object>> slots = (List<Map<String, Object>>) get(client(),
+                "/api/catalog/courts/" + bc.courtId() + "/availability?date=" + tomorrow(), null).getBody().get("slots");
+        assertThat(slots).filteredOn(s -> s.get("start").toString().startsWith("18:00"))
+                .allMatch(s -> Boolean.TRUE.equals(s.get("available")));
+        ResponseEntity<Map> again = post(client(), "/api/bookings/" + id + "/cancel", Map.of(), c.token());
+        assertThat(again.getStatusCode().value()).isEqualTo(409);
+        assertThat(detail(again)).isEqualTo("Booking is CANCELLED");
+    }
+
+    // Kiểm tra (Review Focus 2): đúng lúc bắt đầu và sau đó không hủy được; số dư không đổi.
+    @Test
+    void cannotCancelAtOrAfterStart() {
+        BookableCourt bc = bookableCourt();
+        Customer c = customer();
+        seedCoins(c.userId(), 100);
+        Map<?, ?> b = book(c, bc.courtId(), tomorrow(), "18:00", "19:00").getBody();
+        String id = (String) b.get("id");
+        Instant start = Instant.parse((String) b.get("startAt"));
+        testClock.set(start);
+        assertThat(post(client(), "/api/bookings/" + id + "/cancel", Map.of(), c.token()).getStatusCode().value())
+                .isEqualTo(409);
+        testClock.set(start.plusSeconds(60));
+        assertThat(post(client(), "/api/bookings/" + id + "/cancel", Map.of(), c.token()).getStatusCode().value())
+                .isEqualTo(409);
+        assertThat(balance(c.userId())).isEqualTo(70);
+    }
+
+    // Kiểm tra (Review Focus 3): venue SUSPENDED / court INACTIVE sau khi đặt vẫn hủy được, trả đủ coin.
+    @Test
+    void cancelAfterVenueSuspended() {
+        BookableCourt bc = bookableCourt();
+        Customer c = customer();
+        seedCoins(c.userId(), 100);
+        String id = (String) book(c, bc.courtId(), tomorrow(), "18:00", "19:00").getBody().get("id");
+        jdbc.update("UPDATE sporthub.venues SET status = 'SUSPENDED' WHERE id = ?", bc.venueId());
+        jdbc.update("UPDATE sporthub.courts SET status = 'INACTIVE' WHERE id = ?", bc.courtId());
+        assertThat(post(client(), "/api/bookings/" + id + "/cancel", Map.of(), c.token()).getStatusCode().value())
+                .isEqualTo(200);
+        assertThat(balance(c.userId())).isEqualTo(100);
+    }
+
+    // Kiểm tra (spec case 5): provider chủ venue hủy được, provider khác 404, reason rỗng 400.
+    @Test
+    void providerCancelsOwnVenueOnly() {
+        BookableCourt bc = bookableCourt();
+        Provider other = verifiedProvider();
+        Customer c = customer();
+        seedCoins(c.userId(), 100);
+        String id = (String) book(c, bc.courtId(), tomorrow(), "18:00", "19:00").getBody().get("id");
+        RestClient client = client();
+        assertThat(get(client, "/api/provider/bookings/" + id, other.token()).getStatusCode().value()).isEqualTo(404);
+        assertThat(post(client, "/api/provider/bookings/" + id + "/cancel", Map.of("reason", "x"), other.token())
+                .getStatusCode().value()).isEqualTo(404);
+        assertThat(post(client, "/api/provider/bookings/" + id + "/cancel", Map.of("reason", ""),
+                bc.provider().token()).getStatusCode().value()).isEqualTo(400);
+        ResponseEntity<Map> r = post(client, "/api/provider/bookings/" + id + "/cancel",
+                Map.of("reason", "Court flooded"), bc.provider().token());
+        assertThat(r.getStatusCode().value()).isEqualTo(200);
+        assertThat(r.getBody().get("cancellationSource")).isEqualTo("PROVIDER");
+        assertThat(r.getBody().get("cancellationReason")).isEqualTo("Court flooded");
+        assertThat(balance(c.userId())).isEqualTo(100);
+    }
+
+    // Kiểm tra: provider liệt kê theo venue+date (startAt tăng dần), thấy customer; date thiếu venue -> 400; ví shop 0.
+    @Test
+    @SuppressWarnings("unchecked")
+    void providerListsAndSeesCustomer() {
+        BookableCourt bc = bookableCourt();
+        Customer c = customer();
+        seedCoins(c.userId(), 100);
+        book(c, bc.courtId(), tomorrow(), "20:00", "21:00");
+        String id = (String) book(c, bc.courtId(), tomorrow(), "18:00", "19:00").getBody().get("id");
+        RestClient client = client();
+        ResponseEntity<Map> list = get(client, "/api/provider/bookings?venueId=" + bc.venueId() + "&date="
+                + tomorrow(), bc.provider().token());
+        assertThat(list.getStatusCode().value()).isEqualTo(200);
+        List<Map<String, Object>> items = (List<Map<String, Object>>) list.getBody().get("items");
+        assertThat(items).hasSize(2);
+        assertThat(Instant.parse((String) items.get(0).get("startAt")))
+                .isBefore(Instant.parse((String) items.get(1).get("startAt")));
+        assertThat(get(client, "/api/provider/bookings?date=" + tomorrow(), bc.provider().token())
+                .getStatusCode().value()).isEqualTo(400);
+        Map<String, Object> detail = get(client, "/api/provider/bookings/" + id, bc.provider().token()).getBody();
+        assertThat(((Map<String, Object>) detail.get("customer")).get("displayName")).isEqualTo("IT Customer");
+        ResponseEntity<Map> wallet = get(client, "/api/provider/wallet", bc.provider().token());
+        assertThat(wallet.getStatusCode().value()).isEqualTo(200);
+        assertThat(((Number) wallet.getBody().get("balance")).longValue()).isZero();
     }
 }
