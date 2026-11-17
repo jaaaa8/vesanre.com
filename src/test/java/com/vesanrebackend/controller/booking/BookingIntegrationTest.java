@@ -1,7 +1,9 @@
 package com.vesanrebackend.controller.booking;
 
 import com.vesanrebackend.BookingApiTestSupport;
+import com.vesanrebackend.service.booking.BookingCompletionJob;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
 
@@ -25,6 +27,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class BookingIntegrationTest extends BookingApiTestSupport {
     private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
+
+    @Autowired
+    private BookingCompletionJob completionJob;
 
     private LocalDate tomorrow() {
         return LocalDate.now(VN).plusDays(1);
@@ -316,5 +321,46 @@ class BookingIntegrationTest extends BookingApiTestSupport {
         ResponseEntity<Map> wallet = get(client, "/api/provider/wallet", bc.provider().token());
         assertThat(wallet.getStatusCode().value()).isEqualTo(200);
         assertThat(((Number) wallet.getBody().get("balance")).longValue()).isZero();
+    }
+
+    private long shopBalance(UUID shopId) {
+        return jdbc.queryForObject("SELECT COALESCE(SUM(balance), 0) FROM sporthub.coin_wallets WHERE shop_id = ?",
+                Long.class, shopId);
+    }
+
+    // Kiểm tra (spec case 7): hết giờ -> job trả cọc vào ví shop đúng một lần; booking đã hủy không bị đụng.
+    @Test
+    void completionPaysShopOnce() {
+        BookableCourt bc = bookableCourt();
+        BookableCourt other = bookableCourt();
+        Customer c = customer();
+        seedCoins(c.userId(), 200);
+        String id = (String) book(c, bc.courtId(), tomorrow(), "18:00", "19:00").getBody().get("id");
+        String cancelled = (String) book(c, other.courtId(), tomorrow(), "18:00", "19:00").getBody().get("id");
+        post(client(), "/api/bookings/" + cancelled + "/cancel", Map.of(), c.token());
+        Instant endAt = jdbc.queryForObject("SELECT s.end_at FROM sporthub.court_schedule_blocks s JOIN "
+                + "sporthub.bookings k ON k.schedule_block_id = s.id WHERE k.id = ?::uuid", Instant.class, id);
+        testClock.set(endAt.plusSeconds(60));
+        // Shared DB may hold >100 older CONFIRMED bookings ahead of ours.
+        for (int i = 0; i < 50 && !"COMPLETED".equals(jdbc.queryForObject(
+                "SELECT status FROM sporthub.bookings WHERE id = ?::uuid", String.class, id)); i++) {
+            completionJob.run();
+        }
+        assertThat(jdbc.queryForObject("SELECT status FROM sporthub.bookings WHERE id = ?::uuid", String.class, id))
+                .isEqualTo("COMPLETED");
+        assertThat(count("SELECT count(*) FROM sporthub.bookings WHERE id = ?::uuid AND completed_at IS NOT NULL", id))
+                .isEqualTo(1);
+        assertThat(count("SELECT count(*) FROM sporthub.court_schedule_blocks s JOIN sporthub.bookings k "
+                + "ON k.schedule_block_id = s.id WHERE k.id = ?::uuid AND s.state = 'ACTIVE'", id)).isEqualTo(1);
+        assertThat(shopBalance(bc.shopId())).isEqualTo(30);
+        assertThat(count("SELECT count(*) FROM sporthub.coin_ledger_entries WHERE booking_id = ?::uuid "
+                + "AND entry_type = 'BOOKING_PAYOUT' AND amount = 30", id)).isEqualTo(1);
+        assertThat(count("SELECT count(*) FROM sporthub.outbox_events WHERE event_key = ?", id + ":COMPLETED"))
+                .isEqualTo(1);
+        completionJob.run();
+        assertThat(shopBalance(bc.shopId())).isEqualTo(30);
+        assertThat(jdbc.queryForObject("SELECT status FROM sporthub.bookings WHERE id = ?::uuid", String.class,
+                cancelled)).isEqualTo("CANCELLED");
+        assertThat(shopBalance(other.shopId())).isZero();
     }
 }
