@@ -40,6 +40,12 @@ public class CoinWalletService {
         return wallets.findByShopIdForUpdate(shopId).orElseThrow();
     }
 
+    /** For callers that only hold the wallet id: never load the wallet entity before this call. */
+    @Transactional
+    public CoinWallet lockWallet(UUID walletId) {
+        return wallets.findByIdForUpdate(walletId).orElseThrow();
+    }
+
     /** The wallet must be locked by the caller; amount is signed. */
     @Transactional
     public CoinLedgerEntry apply(CoinWallet wallet, CoinEntryType type, long amount, Booking booking, CoinTopUp topUp) {

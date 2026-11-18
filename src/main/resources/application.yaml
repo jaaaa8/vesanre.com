@@ -40,3 +40,11 @@ app:
   mail:
     # SMTP is enabled only via SPRING_MAIL_HOST/PORT/USERNAME/PASSWORD env vars; without them mails are only logged.
     from: ${SPORTHUB_MAIL_FROM:no-reply@vesanre.local}
+  payment:
+    fake:
+      # true only on dev machines: the fake gateway page mints free coins.
+      enabled: ${SPORTHUB_PAYMENT_FAKE_ENABLED:false}
+      secret: ${SPORTHUB_PAYMENT_FAKE_SECRET:}
+      base-url: ${SPORTHUB_PAYMENT_FAKE_BASE_URL:http://localhost:8080}
+  jobs:
+    top-up-expiry-delay-ms: 60000

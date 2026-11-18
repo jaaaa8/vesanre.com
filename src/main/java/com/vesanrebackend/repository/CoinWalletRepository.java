@@ -32,6 +32,10 @@ public interface CoinWalletRepository extends JpaRepository<CoinWallet, UUID> {
     @Query("select w from CoinWallet w where w.shop.id = :shopId")
     Optional<CoinWallet> findByShopIdForUpdate(@Param("shopId") UUID shopId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select w from CoinWallet w where w.id = :id")
+    Optional<CoinWallet> findByIdForUpdate(@Param("id") UUID id);
+
     @Query("select w from CoinWallet w where w.user.id = :userId")
     Optional<CoinWallet> findByUserId(@Param("userId") UUID userId);
 
