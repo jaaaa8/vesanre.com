@@ -297,23 +297,24 @@ class BookingIntegrationTest extends BookingApiTestSupport {
         assertThat(balance(c.userId())).isEqualTo(100);
     }
 
-    // Kiểm tra: provider liệt kê theo venue+date (startAt tăng dần), thấy customer; date thiếu venue -> 400; ví shop 0.
+    // Kiểm tra: provider liệt kê theo venue+date (đơn đặt sau lên đầu dù giờ chơi muộn hơn), thấy customer;
+    // date thiếu venue -> 400; ví shop 0.
     @Test
     @SuppressWarnings("unchecked")
     void providerListsAndSeesCustomer() {
         BookableCourt bc = bookableCourt();
         Customer c = customer();
         seedCoins(c.userId(), 100);
-        book(c, bc.courtId(), tomorrow(), "20:00", "21:00");
-        String id = (String) book(c, bc.courtId(), tomorrow(), "18:00", "19:00").getBody().get("id");
+        String first = (String) book(c, bc.courtId(), tomorrow(), "18:00", "19:00").getBody().get("id");
+        String id = (String) book(c, bc.courtId(), tomorrow(), "20:00", "21:00").getBody().get("id");
         RestClient client = client();
         ResponseEntity<Map> list = get(client, "/api/provider/bookings?venueId=" + bc.venueId() + "&date="
                 + tomorrow(), bc.provider().token());
         assertThat(list.getStatusCode().value()).isEqualTo(200);
         List<Map<String, Object>> items = (List<Map<String, Object>>) list.getBody().get("items");
         assertThat(items).hasSize(2);
-        assertThat(Instant.parse((String) items.get(0).get("startAt")))
-                .isBefore(Instant.parse((String) items.get(1).get("startAt")));
+        assertThat(items.get(0).get("id")).isEqualTo(id);
+        assertThat(items.get(1).get("id")).isEqualTo(first);
         assertThat(get(client, "/api/provider/bookings?date=" + tomorrow(), bc.provider().token())
                 .getStatusCode().value()).isEqualTo(400);
         Map<String, Object> detail = get(client, "/api/provider/bookings/" + id, bc.provider().token()).getBody();
