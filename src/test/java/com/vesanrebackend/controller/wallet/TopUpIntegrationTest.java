@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -102,7 +103,7 @@ class TopUpIntegrationTest extends BookingApiTestSupport {
     // Kiểm tra: tạo lệnh 100 coin -> 201, PENDING, 100000đ, mã VSR..., paymentUrl, hết hạn sau 15 phút theo Clock.
     @Test
     void createTopUp() {
-        Instant now = Instant.parse("2026-11-21T10:00:00Z");
+        Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
         testClock.set(now);
         Customer c = customer();
         ResponseEntity<Map> r = createTopUp(c, 100);
@@ -155,7 +156,7 @@ class TopUpIntegrationTest extends BookingApiTestSupport {
     // Kiểm tra: webhook đúng -> 200, lệnh PAID (paidAt theo Clock), ví +100, 1 ledger TOP_UP, event PROCESSED.
     @Test
     void validWebhookCredits() {
-        Instant now = Instant.parse("2026-11-21T10:00:00Z");
+        Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
         testClock.set(now);
         Customer c = customer();
         Map<String, Object> top = createTopUp(c, 100).getBody();
@@ -356,7 +357,7 @@ class TopUpIntegrationTest extends BookingApiTestSupport {
     // Kiểm tra: lệnh hết hạn đúng 15 phút (không sớm hơn); tiền về muộn vẫn PAID và cộng coin (T5).
     @Test
     void expiredTopUpStillCreditsOnLatePayment() {
-        Instant t = Instant.parse("2026-11-21T10:00:00Z");
+        Instant t = Instant.now().truncatedTo(ChronoUnit.SECONDS);
         testClock.set(t);
         Customer c = customer();
         Map<String, Object> top = createTopUp(c, 100).getBody();
@@ -413,7 +414,7 @@ class TopUpIntegrationTest extends BookingApiTestSupport {
     // Kiểm tra: lệnh EXPIRED vẫn hiện nút (để demo tiền về muộn), confirm xong ví được cộng.
     @Test
     void expiredTopUpStillShowsButton() {
-        Instant t = Instant.parse("2026-11-21T10:00:00Z");
+        Instant t = Instant.now().truncatedTo(ChronoUnit.SECONDS);
         testClock.set(t);
         Customer c = customer();
         String code = (String) createTopUp(c, 100).getBody().get("transferCode");
