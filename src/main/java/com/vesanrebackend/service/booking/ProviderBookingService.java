@@ -80,7 +80,7 @@ public class ProviderBookingService {
                     cb.lessThan(r.get("scheduleBlock").<Instant>get("startAt"), to)));
         }
         return PageResponse.of(bookings.findAll(spec,
-                Paging.of(page, size, Sort.by(Sort.Order.asc("scheduleBlock.startAt"), Sort.Order.asc("id"))))
+                Paging.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))))
                 .map(BookingSummary::of));
     }
 
