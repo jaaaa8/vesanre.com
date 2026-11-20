@@ -5,6 +5,7 @@ import com.vesanrebackend.security.CorsConfig;
 import com.vesanrebackend.security.SecurityConfig;
 import com.vesanrebackend.service.booking.BookingService;
 import com.vesanrebackend.service.booking.ProviderBookingService;
+import com.vesanrebackend.service.review.ReviewService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -40,6 +41,8 @@ class BookingControllerSecurityTest {
     private BookingService bookings;
     @MockitoBean
     private ProviderBookingService providerBookings;
+    @MockitoBean
+    private ReviewService reviews;
 
     // Kiểm tra: không token -> 401.
     @Test
@@ -61,6 +64,13 @@ class BookingControllerSecurityTest {
     void providerCannotBook() throws Exception {
         mvc.perform(post("/api/bookings").with(as("PROVIDER")).contentType(MediaType.APPLICATION_JSON)
                 .content(VALID_BODY)).andExpect(status().isForbidden());
+    }
+
+    // Kiểm tra: PROVIDER (không có CUSTOMER) không đánh giá được -> 403.
+    @Test
+    void providerCannotReview() throws Exception {
+        mvc.perform(post("/api/bookings/" + UUID.randomUUID() + "/review").with(as("PROVIDER"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"rating\":5}")).andExpect(status().isForbidden());
     }
 
     private RequestPostProcessor as(String role) {
