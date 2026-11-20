@@ -100,6 +100,17 @@ class AdminUserIntegrationTest extends BookingApiTestSupport {
         assertThat(list("status=BOGUS", a.token()).getStatusCode().value()).isEqualTo(400);
     }
 
+    // Kiểm tra: q tiếng Việt viết thường khớp tên viết hoa có dấu (phụ thuộc locale của Postgres).
+    @Test
+    void qMatchesVietnameseNameIgnoringCase() {
+        Admin a = admin();
+        Customer c = customer();
+        String tag = UUID.randomUUID().toString().substring(0, 8);
+        jdbc.update("UPDATE sporthub.users SET display_name = ? WHERE id = ?", "ĐỨC ÁNH " + tag, c.userId());
+        List<Map> items = (List<Map>) list("q={q}", a.token(), "đức ánh " + tag).getBody().get("items");
+        assertThat(items).extracting(i -> i.get("id")).containsExactly(c.userId().toString());
+    }
+
     @Test
     void nonAdminForbidden() {
         Customer c = customer();
