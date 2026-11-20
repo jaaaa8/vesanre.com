@@ -60,10 +60,7 @@ public class ReviewService {
     // ponytail: N+1 on venue/booking per row; fetch join if pages get large.
     @Transactional(readOnly = true)
     public PageResponse<ProviderReviewItem> providerList(UUID ownerId, int page, int size) {
-        return PageResponse.of(reviews.findByShopOwner(ownerId, newestFirst(page, size))
-                .map(r -> new ProviderReviewItem(ReviewView.of(r),
-                        r.getBooking().getScheduleBlock().getCourt().getVenue().getName(),
-                        r.getBooking().getBookingCode())));
+        return PageResponse.of(reviews.findByShopOwner(ownerId, newestFirst(page, size)).map(ProviderReviewItem::of));
     }
 
     @Transactional
