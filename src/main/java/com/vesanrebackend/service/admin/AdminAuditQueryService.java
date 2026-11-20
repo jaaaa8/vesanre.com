@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.Locale;
 import java.util.UUID;
 
 @Service
@@ -29,7 +30,7 @@ public class AdminAuditQueryService {
     public PageResponse<AuditLogItem> list(String entityType, UUID actorId, Pageable pageable) {
         Specification<AuditLog> spec = Specification.unrestricted();
         if (entityType != null && !entityType.isBlank()) {
-            spec = spec.and((r, q, cb) -> cb.equal(r.get("entityType"), entityType.trim()));
+            spec = spec.and((r, q, cb) -> cb.equal(r.get("entityType"), entityType.trim().toUpperCase(Locale.ROOT)));
         }
         if (actorId != null) {
             spec = spec.and((r, q, cb) -> cb.equal(r.get("actorUser").get("id"), actorId));

@@ -16,6 +16,9 @@ spring:
     hibernate:
       ddl-auto: validate
     open-in-view: false
+    properties:
+      # List pages touch lazy associations per row (review -> booking -> venue, user -> roles); load them in batches.
+      hibernate.default_batch_fetch_size: 100
   servlet:
     multipart:
       max-file-size: 5MB
