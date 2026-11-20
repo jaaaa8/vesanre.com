@@ -15,12 +15,14 @@ import org.springframework.web.client.RestClient;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -102,6 +104,9 @@ public abstract class BookingApiTestSupport extends AdminApiTestSupport {
     protected record BookableCourt(Provider provider, UUID venueId, UUID courtId, UUID shopId) {
     }
 
+    // static: JUnit makes a new instance per test method, and slots must not repeat on a court.
+    private static final AtomicInteger NEXT_SLOT = new AtomicInteger();
+
     @Autowired
     protected MutableClock testClock;
 
@@ -175,5 +180,24 @@ public abstract class BookingApiTestSupport extends AdminApiTestSupport {
     protected long ledgerSum(UUID userId) {
         return jdbc.queryForObject("SELECT COALESCE(SUM(e.amount), 0) FROM sporthub.coin_ledger_entries e "
                 + "JOIN sporthub.coin_wallets w ON w.id = e.wallet_id WHERE w.user_id = ?", Long.class, userId);
+    }
+
+    /** Seeds 100 coins and books 1h on the next unused slot (date +2.. days, 06:00-21:00 VN); returns the id. */
+    protected UUID confirmedBooking(Customer c, BookableCourt bc) {
+        seedCoins(c.userId(), 100);
+        int n = NEXT_SLOT.getAndIncrement();
+        LocalDate date = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).plusDays(2 + n / 16);
+        int hour = 6 + n % 16;
+        var response = post(client(), "/api/bookings", Map.of("courtId", bc.courtId().toString(),
+                "date", date.toString(), "startTime", String.format("%02d:00", hour),
+                "endTime", String.format("%02d:00", hour + 1)), c.token());
+        assertThat(response.getStatusCode().value()).isEqualTo(201);
+        return UUID.fromString((String) response.getBody().get("id"));
+    }
+
+    protected UUID completedBooking(Customer c, BookableCourt bc) {
+        UUID id = confirmedBooking(c, bc);
+        jdbc.update("UPDATE sporthub.bookings SET status = 'COMPLETED', completed_at = now() WHERE id = ?", id);
+        return id;
     }
 }
