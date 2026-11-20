@@ -3,9 +3,11 @@ package com.vesanrebackend.repository;
 import com.vesanrebackend.dto.review.RatingSummary;
 import com.vesanrebackend.entity.booking.Review;
 import com.vesanrebackend.entity.enums.ReviewStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -18,6 +20,12 @@ public interface ReviewRepository extends JpaRepository<Review, UUID> {
     Optional<Review> findByBookingId(UUID bookingId);
 
     boolean existsByBookingId(UUID bookingId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from Review r where r.id = :id")
+    Optional<Review> findByIdForUpdate(@Param("id") UUID id);
+
+    Page<Review> findByStatus(ReviewStatus status, Pageable pageable);
 
     @Query("select r from Review r where r.booking.scheduleBlock.court.venue.id = :venueId and r.status = :status")
     Page<Review> findByVenueAndStatus(@Param("venueId") UUID venueId, @Param("status") ReviewStatus status,
