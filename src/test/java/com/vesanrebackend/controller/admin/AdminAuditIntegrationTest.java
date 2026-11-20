@@ -27,6 +27,8 @@ class AdminAuditIntegrationTest extends BookingApiTestSupport {
         assertThat(((Map) items.get(1).get("beforeData")).get("status")).isEqualTo("ACTIVE");
         assertThat(((Map) items.get(0).get("actor")).get("id")).isEqualTo(a.userId().toString());
         assertThat(((Map) items.get(0).get("actor")).get("displayName")).isEqualTo("IT Admin");
+        assertThat(get(client(), "/api/admin/audit-logs?entityType=user&actorId=" + a.userId(), a.token())
+                .getBody().get("totalElements")).isEqualTo(2);
         assertThat(get(client(), "/api/admin/audit-logs?entityType=VENUE&actorId=" + a.userId(), a.token())
                 .getBody().get("totalElements")).isEqualTo(0);
     }

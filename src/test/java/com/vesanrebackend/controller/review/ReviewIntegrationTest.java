@@ -52,10 +52,15 @@ class ReviewIntegrationTest extends BookingApiTestSupport {
         BookableCourt bc = bookableCourt();
         Customer c = customer();
         UUID done = completedBooking(c, bc);
-        assertThat(review(c, done, 5).getStatusCode().value()).isEqualTo(201);
+        assertThat(review(c, done, 5, "Sân sạch " + "x".repeat(200)).getStatusCode().value()).isEqualTo(201);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM sporthub.notifications WHERE user_id = ? "
                 + "AND notification_type = 'REVIEW_CREATED' AND booking_id = ?", Long.class, bc.provider().userId(), done))
                 .isEqualTo(1);
+        String body = jdbc.queryForObject("SELECT body FROM sporthub.notifications WHERE booking_id = ? "
+                + "AND notification_type = 'REVIEW_CREATED'", String.class, done);
+        assertThat(body).contains("Sân sạch").endsWith("…\"").doesNotContain("x".repeat(101));
+        Map detail = get(client(), "/api/provider/bookings/" + done, bc.provider().token()).getBody();
+        assertThat(((Map) detail.get("review")).get("rating")).isEqualTo(5);
     }
 
     @Test
