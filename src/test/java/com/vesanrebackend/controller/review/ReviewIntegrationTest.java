@@ -136,4 +136,59 @@ class ReviewIntegrationTest extends BookingApiTestSupport {
         assertThat(get(client(), "/api/provider/reviews", customer().token()).getStatusCode().value())
                 .isEqualTo(403);
     }
+
+    private BigDecimal ratingAverage(BookableCourt bc) {
+        Object avg = get(client(), "/api/catalog/venues/" + bc.venueId(), null).getBody().get("ratingAverage");
+        return avg == null ? null : new BigDecimal(avg.toString());
+    }
+
+    @Test
+    void hideRemovesFromPublicAndAverage() {
+        BookableCourt bc = bookableCourt();
+        Admin admin = admin();
+        UUID five = reviewed(bc, 5);
+        Customer c = customer();
+        ResponseEntity<Map> created = review(c, completedBooking(c, bc), 3);
+        UUID three = UUID.fromString((String) created.getBody().get("id"));
+        assertThat(ratingAverage(bc)).isEqualByComparingTo("4.0");
+        long notesBefore = jdbc.queryForObject("SELECT count(*) FROM sporthub.notifications WHERE user_id = ?",
+                Long.class, c.userId());
+
+        String hide = "/api/admin/reviews/" + three + "/hide";
+        ResponseEntity<Map> hidden = post(client(), hide, Map.of("reason", "ngôn từ"), admin.token());
+        assertThat(hidden.getStatusCode().value()).isEqualTo(200);
+        assertThat(hidden.getBody().get("status")).isEqualTo("HIDDEN");
+        List<Map<String, Object>> pub = items(get(client(), "/api/catalog/venues/" + bc.venueId() + "/reviews", null));
+        assertThat(pub).extracting(m -> m.get("id")).containsExactly(five.toString());
+        assertThat(ratingAverage(bc)).isEqualByComparingTo("5.0");
+        assertThat(get(client(), "/api/catalog/venues/" + bc.venueId(), null).getBody().get("ratingCount")).isEqualTo(1);
+        assertThat(items(get(client(), "/api/provider/reviews?size=100", bc.provider().token())))
+                .anyMatch(i -> three.toString().equals(((Map) i.get("review")).get("id"))
+                        && "HIDDEN".equals(((Map) i.get("review")).get("status")));
+        assertThat(jdbc.queryForObject("SELECT after_data->>'reason' FROM sporthub.audit_logs WHERE entity_type = 'REVIEW' "
+                + "AND entity_id = ? AND action = 'REVIEW_HIDDEN'", String.class, three)).isEqualTo("ngôn từ");
+        assertThat(post(client(), hide, Map.of("reason", "lại"), admin.token()).getStatusCode().value()).isEqualTo(409);
+        assertThat(post(client(), hide, Map.of(), admin.token()).getStatusCode().value()).isEqualTo(400);
+        assertThat(allItems(client(), "/api/admin/reviews?status=HIDDEN", admin.token()))
+                .anyMatch(i -> three.toString().equals(((Map) i.get("review")).get("id")));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM sporthub.notifications WHERE user_id = ?",
+                Long.class, c.userId())).isEqualTo(notesBefore);
+
+        String unhide = "/api/admin/reviews/" + three + "/unhide";
+        assertThat(post(client(), unhide, Map.of(), admin.token()).getStatusCode().value()).isEqualTo(200);
+        assertThat(ratingAverage(bc)).isEqualByComparingTo("4.0");
+        assertThat(post(client(), unhide, Map.of(), admin.token()).getStatusCode().value()).isEqualTo(409);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM sporthub.audit_logs WHERE entity_id = ? "
+                + "AND action = 'REVIEW_UNHIDDEN'", Long.class, three)).isEqualTo(1);
+        assertThat(post(client(), "/api/admin/reviews/" + UUID.randomUUID() + "/unhide", Map.of(), admin.token())
+                .getStatusCode().value()).isEqualTo(404);
+    }
+
+    @Test
+    void nonAdminForbidden() {
+        BookableCourt bc = bookableCourt();
+        UUID r = reviewed(bc, 4);
+        assertThat(post(client(), "/api/admin/reviews/" + r + "/hide", Map.of("reason", "x"), bc.provider().token())
+                .getStatusCode().value()).isEqualTo(403);
+    }
 }
