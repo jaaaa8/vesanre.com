@@ -57,7 +57,6 @@ public class ReviewService {
                 .map(ReviewView::of));
     }
 
-    // ponytail: N+1 on venue/booking per row; fetch join if pages get large.
     @Transactional(readOnly = true)
     public PageResponse<ProviderReviewItem> providerList(UUID ownerId, int page, int size) {
         return PageResponse.of(reviews.findByShopOwner(ownerId, newestFirst(page, size)).map(ProviderReviewItem::of));
@@ -72,6 +71,14 @@ public class ReviewService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Review already replied");
         }
         return ReviewView.of(reviews.findById(reviewId).orElseThrow());
+    }
+
+    private static String excerpt(String comment) {
+        if (comment == null || comment.isBlank()) {
+            return "";
+        }
+        String c = comment.strip();
+        return ": \"" + (c.length() > 100 ? c.substring(0, 100) + "…" : c) + "\"";
     }
 
     @Transactional
@@ -94,7 +101,7 @@ public class ReviewService {
         Shop shop = booking.getScheduleBlock().getCourt().getVenue().getShop();
         String venueName = booking.getScheduleBlock().getCourt().getVenue().getName();
         String body = booking.getCustomer().getDisplayName() + " chấm " + req.rating() + " sao cho " + venueName
-                + " (" + booking.getBookingCode() + ")";
+                + " (" + booking.getBookingCode() + ")" + excerpt(req.comment());
         notifications.insertIfAbsent(shop.getOwner().getUserId(), bookingId, "REVIEW_CREATED", "Đánh giá mới", body,
                 "review:" + review.getId());
         mailer.send(shop.getOwner().getUser().getEmail(), "[Vesanre] Đánh giá mới cho " + venueName, body,

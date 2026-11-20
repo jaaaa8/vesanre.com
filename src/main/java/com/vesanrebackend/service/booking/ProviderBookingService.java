@@ -2,6 +2,7 @@ package com.vesanrebackend.service.booking;
 
 import com.vesanrebackend.dto.admin.PageResponse;
 import com.vesanrebackend.dto.booking.BookingDetail;
+import com.vesanrebackend.dto.review.ReviewView;
 import com.vesanrebackend.dto.booking.BookingSummary;
 import com.vesanrebackend.dto.coin.WalletView;
 import com.vesanrebackend.entity.booking.Booking;
@@ -10,6 +11,7 @@ import com.vesanrebackend.entity.enums.CancellationSource;
 import com.vesanrebackend.entity.venue.Venue;
 import com.vesanrebackend.repository.BookingRepository;
 import com.vesanrebackend.repository.CourtRepository;
+import com.vesanrebackend.repository.ReviewRepository;
 import com.vesanrebackend.repository.ShopRepository;
 import com.vesanrebackend.repository.VenueRepository;
 import com.vesanrebackend.service.coin.CoinWalletService;
@@ -36,17 +38,19 @@ public class ProviderBookingService {
     private final CourtRepository courts;
     private final ShopRepository shops;
     private final CoinWalletService wallets;
+    private final ReviewRepository reviews;
     private final ObjectMapper json;
 
     public ProviderBookingService(BookingRepository bookings, BookingLifecycle lifecycle, VenueRepository venues,
                                   CourtRepository courts, ShopRepository shops, CoinWalletService wallets,
-                                  ObjectMapper json) {
+                                  ReviewRepository reviews, ObjectMapper json) {
         this.bookings = bookings;
         this.lifecycle = lifecycle;
         this.venues = venues;
         this.courts = courts;
         this.shops = shops;
         this.wallets = wallets;
+        this.reviews = reviews;
         this.json = json;
     }
 
@@ -89,7 +93,8 @@ public class ProviderBookingService {
         if (!bookings.existsForShopOwner(bookingId, userId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found");
         }
-        return BookingService.detail(bookings.findById(bookingId).orElseThrow(), json, true);
+        return BookingService.detail(bookings.findById(bookingId).orElseThrow(), json, true)
+                .withReview(reviews.findByBookingId(bookingId).map(ReviewView::of).orElse(null));
     }
 
     @Transactional
