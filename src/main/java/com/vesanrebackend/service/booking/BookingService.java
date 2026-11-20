@@ -4,6 +4,7 @@ import com.vesanrebackend.dto.admin.PageResponse;
 import com.vesanrebackend.dto.booking.BookingDetail;
 import com.vesanrebackend.dto.booking.BookingSummary;
 import com.vesanrebackend.dto.booking.CreateBookingRequest;
+import com.vesanrebackend.dto.review.ReviewView;
 import com.vesanrebackend.entity.booking.Booking;
 import com.vesanrebackend.entity.coin.CoinWallet;
 import com.vesanrebackend.entity.court.Court;
@@ -21,6 +22,7 @@ import com.vesanrebackend.entity.venue.Venue;
 import com.vesanrebackend.repository.BookingRepository;
 import com.vesanrebackend.repository.CourtRepository;
 import com.vesanrebackend.repository.CourtScheduleBlockRepository;
+import com.vesanrebackend.repository.ReviewRepository;
 import com.vesanrebackend.repository.UserAccountRepository;
 import com.vesanrebackend.service.catalog.AvailabilityCalculator;
 import com.vesanrebackend.service.coin.CoinWalletService;
@@ -59,18 +61,20 @@ public class BookingService {
     private final UserAccountRepository users;
     private final CoinWalletService wallets;
     private final BookingLifecycle lifecycle;
+    private final ReviewRepository reviews;
     private final ObjectMapper json;
     private final Clock clock;
 
     public BookingService(BookingRepository bookings, CourtRepository courts, CourtScheduleBlockRepository blocks,
                           UserAccountRepository users, CoinWalletService wallets, BookingLifecycle lifecycle,
-                          ObjectMapper json, Clock clock) {
+                          ReviewRepository reviews, ObjectMapper json, Clock clock) {
         this.bookings = bookings;
         this.courts = courts;
         this.blocks = blocks;
         this.users = users;
         this.wallets = wallets;
         this.lifecycle = lifecycle;
+        this.reviews = reviews;
         this.json = json;
         this.clock = clock;
     }
@@ -167,7 +171,8 @@ public class BookingService {
     @Transactional(readOnly = true)
     public BookingDetail get(UUID customerId, UUID bookingId) {
         return bookings.findById(bookingId).filter(b -> b.getCustomer().getId().equals(customerId))
-                .map(b -> detail(b, json, false))
+                .map(b -> detail(b, json, false)
+                        .withReview(reviews.findByBookingId(bookingId).map(ReviewView::of).orElse(null)))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found"));
     }
 
