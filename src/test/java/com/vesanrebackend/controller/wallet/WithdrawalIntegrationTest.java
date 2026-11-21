@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -78,5 +79,89 @@ class WithdrawalIntegrationTest extends BookingApiTestSupport {
     @Test
     void customerForbidden() {
         assertThat(withdraw(customer().token(), 100).getStatusCode().value()).isEqualTo(403);
+    }
+
+    private int auditCount(String action, String id) {
+        return jdbc.queryForObject("SELECT count(*) FROM sporthub.audit_logs WHERE action = ? AND entity_type = 'WITHDRAWAL' "
+                + "AND entity_id = ?::uuid", Integer.class, action, id);
+    }
+
+    private int notificationCount(UUID userId, String type) {
+        return jdbc.queryForObject("SELECT count(*) FROM sporthub.notifications WHERE user_id = ? AND notification_type = ? "
+                + "AND booking_id IS NULL", Integer.class, userId, type);
+    }
+
+    // Kiểm tra (Review Focus 1, 2): reject hoàn coin đúng một lần; reject/mark-paid lần sau -> 409; ví = tổng sổ.
+    @Test
+    void rejectRefundsOnceThenMarkPaidConflicts() {
+        BookableCourt bc = bookableCourt();
+        seedShopCoins(bc, 100);
+        Admin a = admin();
+        String id = (String) withdraw(bc.provider().token(), 100).getBody().get("id");
+        assertThat(shopBalance(bc.shopId())).isEqualTo(0);
+        ResponseEntity<Map> r = post(client(), "/api/admin/withdrawals/" + id + "/reject", Map.of("reason", "sai STK"),
+                a.token());
+        assertThat(r.getStatusCode().value()).isEqualTo(200);
+        assertThat(r.getBody()).containsEntry("status", "REJECTED").containsEntry("rejectionReason", "sai STK");
+        assertThat(shopBalance(bc.shopId())).isEqualTo(100);
+        assertThat(post(client(), "/api/admin/withdrawals/" + id + "/reject", Map.of("reason", "x"), a.token())
+                .getStatusCode().value()).isEqualTo(409);
+        assertThat(post(client(), "/api/admin/withdrawals/" + id + "/mark-paid", Map.of("bankTransactionRef", "FT1"),
+                a.token()).getStatusCode().value()).isEqualTo(409);
+        assertThat(shopBalance(bc.shopId())).isEqualTo(100);
+        assertThat(shopLedgerSum(bc.shopId())).isEqualTo(100);
+        assertThat(auditCount("WITHDRAWAL_REJECTED", id)).isEqualTo(1);
+        assertThat(notificationCount(bc.provider().userId(), "WITHDRAWAL_REJECTED")).isEqualTo(1);
+    }
+
+    // Kiểm tra: mark-paid giữ coin đã trừ, ghi ref/paidAt, audit + thông báo; thiếu ref -> 400.
+    @Test
+    void markPaidKeepsCoinsDeducted() {
+        BookableCourt bc = bookableCourt();
+        seedShopCoins(bc, 200);
+        Admin a = admin();
+        String other = (String) withdraw(bc.provider().token(), 100).getBody().get("id");
+        assertThat(post(client(), "/api/admin/withdrawals/" + other + "/mark-paid", Map.of("bankTransactionRef", " "),
+                a.token()).getStatusCode().value()).isEqualTo(400);
+        String id = (String) withdraw(bc.provider().token(), 100).getBody().get("id");
+        ResponseEntity<Map> r = post(client(), "/api/admin/withdrawals/" + id + "/mark-paid",
+                Map.of("bankTransactionRef", "FT123"), a.token());
+        assertThat(r.getStatusCode().value()).isEqualTo(200);
+        assertThat(r.getBody()).containsEntry("status", "PAID").containsEntry("bankTransactionRef", "FT123");
+        assertThat(r.getBody().get("paidAt")).isNotNull();
+        assertThat(shopBalance(bc.shopId())).isEqualTo(0);
+        assertThat(shopLedgerSum(bc.shopId())).isEqualTo(0);
+        assertThat(auditCount("WITHDRAWAL_PAID", id)).isEqualTo(1);
+        assertThat(notificationCount(bc.provider().userId(), "WITHDRAWAL_PAID")).isEqualTo(1);
+    }
+
+    // Kiểm tra: lọc PENDING trả lệnh vừa tạo kèm shopName.
+    @Test
+    void adminListFiltersPending() {
+        BookableCourt bc = bookableCourt();
+        seedShopCoins(bc, 100);
+        String id = (String) withdraw(bc.provider().token(), 100).getBody().get("id");
+        String shopName = jdbc.queryForObject("SELECT name FROM sporthub.shops WHERE id = ?", String.class, bc.shopId());
+        List<Map<String, Object>> items = allItems(client(), "/api/admin/withdrawals?status=PENDING", admin().token());
+        assertThat(items).filteredOn(i -> id.equals(i.get("id"))).singleElement()
+                .satisfies(i -> assertThat(i).containsEntry("shopName", shopName).containsEntry("status", "PENDING"));
+        assertThat(items).allSatisfy(i -> assertThat(i).containsEntry("status", "PENDING"));
+    }
+
+    // Kiểm tra (Q22): chủ shop bị khóa sau khi tạo lệnh, admin vẫn duyệt được.
+    @Test
+    void suspendedOwnerRequestStillReviewable() {
+        BookableCourt bc = bookableCourt();
+        seedShopCoins(bc, 100);
+        String id = (String) withdraw(bc.provider().token(), 100).getBody().get("id");
+        jdbc.update("UPDATE sporthub.users SET status = 'SUSPENDED' WHERE id = ?", bc.provider().userId());
+        assertThat(post(client(), "/api/admin/withdrawals/" + id + "/mark-paid", Map.of("bankTransactionRef", "FT9"),
+                admin().token()).getStatusCode().value()).isEqualTo(200);
+    }
+
+    @Test
+    void providerForbiddenOnAdminApi() {
+        assertThat(get(client(), "/api/admin/withdrawals", bookableCourt().provider().token())
+                .getStatusCode().value()).isEqualTo(403);
     }
 }
