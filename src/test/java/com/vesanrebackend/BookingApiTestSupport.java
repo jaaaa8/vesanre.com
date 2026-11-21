@@ -1,5 +1,6 @@
 package com.vesanrebackend;
 
+import com.vesanrebackend.entity.booking.Booking;
 import com.vesanrebackend.entity.coin.CoinTopUp;
 import com.vesanrebackend.entity.enums.CoinEntryType;
 import com.vesanrebackend.service.coin.CoinWalletService;
@@ -199,5 +200,27 @@ public abstract class BookingApiTestSupport extends AdminApiTestSupport {
         UUID id = confirmedBooking(c, bc);
         jdbc.update("UPDATE sporthub.bookings SET status = 'COMPLETED', completed_at = now() WHERE id = ?", id);
         return id;
+    }
+
+    /** Credits a shop wallet through a COMPLETED booking's BOOKING_PAYOUT (a CONFIRMED one would jam BookingCompletionJob). */
+    protected void seedShopCoins(BookableCourt bc, long coins) {
+        UUID bookingId = completedBooking(customer(), bc);
+        tx.executeWithoutResult(status -> coinWallets.apply(coinWallets.lockShopWallet(bc.shopId()),
+                CoinEntryType.BOOKING_PAYOUT, coins, em.getReference(Booking.class, bookingId), null));
+    }
+
+    protected long shopBalance(UUID shopId) {
+        return jdbc.queryForObject("SELECT COALESCE(SUM(balance), 0) FROM sporthub.coin_wallets WHERE shop_id = ?",
+                Long.class, shopId);
+    }
+
+    protected long shopLedgerSum(UUID shopId) {
+        return jdbc.queryForObject("SELECT COALESCE(SUM(e.amount), 0) FROM sporthub.coin_ledger_entries e "
+                + "JOIN sporthub.coin_wallets w ON w.id = e.wallet_id WHERE w.shop_id = ?", Long.class, shopId);
+    }
+
+    @SuppressWarnings("unchecked")
+    protected List<Map> getList(String path, String token) {
+        return client().get().uri(path).headers(h -> h.setBearerAuth(token)).retrieve().toEntity(List.class).getBody();
     }
 }
