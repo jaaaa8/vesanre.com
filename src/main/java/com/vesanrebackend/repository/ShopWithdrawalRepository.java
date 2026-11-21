@@ -23,4 +23,8 @@ public interface ShopWithdrawalRepository extends JpaRepository<ShopWithdrawal, 
     @Query(value = "select w from ShopWithdrawal w join fetch w.shop where w.status = :status",
             countQuery = "select count(w) from ShopWithdrawal w where w.status = :status")
     Page<ShopWithdrawal> findByStatus(@Param("status") WithdrawalStatus status, Pageable pageable);
+
+    @Query(value = "select w from ShopWithdrawal w join fetch w.shop",
+            countQuery = "select count(w) from ShopWithdrawal w")
+    Page<ShopWithdrawal> findAllWithShop(Pageable pageable);
 }
