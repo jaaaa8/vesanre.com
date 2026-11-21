@@ -64,6 +64,11 @@ public class CoinLedgerEntry {
     // Đơn đặt sân liên quan (các loại BOOKING_*).
     private Booking booking;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "withdrawal_id")
+    // Lệnh rút liên quan (WITHDRAWAL, WITHDRAWAL_RETURN).
+    private ShopWithdrawal withdrawal;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false, columnDefinition = "timestamp with time zone")
     // Thời điểm tạo bản ghi.

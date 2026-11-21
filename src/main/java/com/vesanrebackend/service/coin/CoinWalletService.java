@@ -5,6 +5,7 @@ import com.vesanrebackend.entity.booking.Booking;
 import com.vesanrebackend.entity.coin.CoinLedgerEntry;
 import com.vesanrebackend.entity.coin.CoinTopUp;
 import com.vesanrebackend.entity.coin.CoinWallet;
+import com.vesanrebackend.entity.coin.ShopWithdrawal;
 import com.vesanrebackend.entity.enums.CoinEntryType;
 import com.vesanrebackend.repository.CoinLedgerEntryRepository;
 import com.vesanrebackend.repository.CoinWalletRepository;
@@ -49,6 +50,17 @@ public class CoinWalletService {
     /** The wallet must be locked by the caller; amount is signed. */
     @Transactional
     public CoinLedgerEntry apply(CoinWallet wallet, CoinEntryType type, long amount, Booking booking, CoinTopUp topUp) {
+        return write(wallet, type, amount, booking, topUp, null);
+    }
+
+    /** Withdrawal entries; the wallet must be locked by the caller. */
+    @Transactional
+    public CoinLedgerEntry apply(CoinWallet wallet, CoinEntryType type, long amount, ShopWithdrawal withdrawal) {
+        return write(wallet, type, amount, null, null, withdrawal);
+    }
+
+    private CoinLedgerEntry write(CoinWallet wallet, CoinEntryType type, long amount, Booking booking, CoinTopUp topUp,
+                                  ShopWithdrawal withdrawal) {
         long after = wallet.getBalance() + amount;
         if (after < 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Insufficient coins");
@@ -61,6 +73,7 @@ public class CoinWalletService {
         entry.setBalanceAfter(after);
         entry.setBooking(booking);
         entry.setTopUp(topUp);
+        entry.setWithdrawal(withdrawal);
         return ledger.saveAndFlush(entry);
     }
 
