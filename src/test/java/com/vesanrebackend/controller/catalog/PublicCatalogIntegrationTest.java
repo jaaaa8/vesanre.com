@@ -115,6 +115,8 @@ class PublicCatalogIntegrationTest extends AdminApiTestSupport {
         assertThat((List<String>) card3.get("sports")).isEmpty();
         assertThat(card3.get("fromPrice")).isNull();
         assertThat(card3.get("coverImageUrl")).isNull();
+        assertThat(card3.get("ratingAverage")).isNull();
+        assertThat(card3.get("ratingCount")).isEqualTo(0);
     }
 
     // API: GET /api/catalog/venues
