@@ -110,6 +110,10 @@ class ReviewIntegrationTest extends BookingApiTestSupport {
         detail = get(client(), venue, null).getBody();
         assertThat(new BigDecimal(detail.get("ratingAverage").toString())).isEqualByComparingTo("4.3");
         assertThat(detail.get("ratingCount")).isEqualTo(3);
+        Map<String, Object> card = items(get(client(), "/api/catalog/venues?q=" + detail.get("name"), null)).get(0);
+        assertThat(card.get("id")).isEqualTo(bc.venueId().toString());
+        assertThat(new BigDecimal(card.get("ratingAverage").toString())).isEqualByComparingTo("4.3");
+        assertThat(card.get("ratingCount")).isEqualTo(3);
         assertThat(get(client(), "/api/catalog/venues/" + UUID.randomUUID() + "/reviews", null)
                 .getStatusCode().value()).isEqualTo(404);
     }
