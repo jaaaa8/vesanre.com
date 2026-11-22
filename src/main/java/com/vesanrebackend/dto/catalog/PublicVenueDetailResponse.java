@@ -12,7 +12,7 @@ public record PublicVenueDetailResponse(UUID id, String name, String description
                                         String district, String city, String province, BigDecimal latitude,
                                         BigDecimal longitude, String phone, ShopItem shop, List<ImageResponse> images,
                                         List<VenueDetailResponse.AmenityItem> amenities, List<CourtItem> courts,
-                                        BigDecimal fromPrice) {
+                                        BigDecimal fromPrice, BigDecimal ratingAverage, long ratingCount) {
     public record ShopItem(String name, String logoUrl) {
     }
 

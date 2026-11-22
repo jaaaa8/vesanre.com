@@ -1,5 +1,6 @@
 package com.vesanrebackend.dto.booking;
 
+import com.vesanrebackend.dto.review.ReviewView;
 import com.vesanrebackend.entity.booking.Booking;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -14,7 +15,8 @@ public record BookingDetail(UUID id, String bookingCode, String status, String v
                             long depositCoins, String currency, Instant createdAt, UUID venueId, UUID courtId,
                             String shopName, List<PriceLine> priceBreakdown, int depositPercent,
                             String cancellationSource, String cancellationReason, Instant confirmedAt,
-                            Instant cancelledAt, Instant completedAt, CustomerContact customer) {
+                            Instant cancelledAt, Instant completedAt, CustomerContact customer,
+                            ReviewView review) {
     /** Needs an open session; customer contact is only filled for the provider view. */
     public static BookingDetail of(Booking b, ObjectMapper json, boolean withCustomer) {
         BookingSummary s = BookingSummary.of(b);
@@ -26,6 +28,14 @@ public record BookingDetail(UUID id, String bookingCode, String status, String v
                 court.getVenue().getId(), court.getId(), b.getShopNameSnapshot(), lines, percent,
                 b.getCancellationSource() == null ? null : b.getCancellationSource().name(),
                 b.getCancellationReason(), b.getConfirmedAt(), b.getCancelledAt(), b.getCompletedAt(),
-                withCustomer ? new CustomerContact(b.getCustomer().getDisplayName(), b.getCustomer().getPhone()) : null);
+                withCustomer ? new CustomerContact(b.getCustomer().getDisplayName(), b.getCustomer().getPhone()) : null,
+                null);
+    }
+
+    public BookingDetail withReview(ReviewView review) {
+        return new BookingDetail(id, bookingCode, status, venueName, courtName, startAt, endAt, timezone,
+                subtotalAmount, depositCoins, currency, createdAt, venueId, courtId, shopName, priceBreakdown,
+                depositPercent, cancellationSource, cancellationReason, confirmedAt, cancelledAt, completedAt,
+                customer, review);
     }
 }

@@ -1,0 +1,203 @@
+package com.vesanrebackend.controller.review;
+
+import com.vesanrebackend.BookingApiTestSupport;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.ResponseEntity;
+
+import java.math.BigDecimal;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class ReviewIntegrationTest extends BookingApiTestSupport {
+
+    private ResponseEntity<Map> review(Customer c, UUID bookingId, Integer rating, String comment) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("rating", rating);
+        body.put("comment", comment);
+        return post(client(), "/api/bookings/" + bookingId + "/review", body, c.token());
+    }
+
+    private ResponseEntity<Map> review(Customer c, UUID bookingId, int rating) {
+        return review(c, bookingId, rating, null);
+    }
+
+    @Test
+    void onlyOwnCompletedBookingOnce() {
+        BookableCourt bc = bookableCourt();
+        Customer c = customer();
+        Customer other = customer();
+        UUID confirmed = confirmedBooking(c, bc);
+        assertThat(review(c, confirmed, 5).getStatusCode().value()).isEqualTo(409);
+        UUID done = completedBooking(c, bc);
+        assertThat(review(other, done, 5).getStatusCode().value()).isEqualTo(404);
+        assertThat(review(c, UUID.randomUUID(), 5).getStatusCode().value()).isEqualTo(404);
+        ResponseEntity<Map> ok = review(c, done, 4, "Sân đẹp");
+        assertThat(ok.getStatusCode().value()).isEqualTo(201);
+        assertThat(ok.getBody().get("rating")).isEqualTo(4);
+        assertThat(ok.getBody().get("comment")).isEqualTo("Sân đẹp");
+        assertThat(ok.getBody().get("customerName")).isEqualTo("IT Customer");
+        assertThat(ok.getBody().get("status")).isEqualTo("PUBLISHED");
+        assertThat(review(c, done, 5).getStatusCode().value()).isEqualTo(409);
+        Map detail = get(client(), "/api/bookings/" + done, c.token()).getBody();
+        assertThat(((Map) detail.get("review")).get("rating")).isEqualTo(4);
+        assertThat(get(client(), "/api/bookings/" + confirmed, c.token()).getBody().get("review")).isNull();
+    }
+
+    @Test
+    void notifiesShopOwner() {
+        BookableCourt bc = bookableCourt();
+        Customer c = customer();
+        UUID done = completedBooking(c, bc);
+        assertThat(review(c, done, 5, "Sân sạch " + "x".repeat(200)).getStatusCode().value()).isEqualTo(201);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM sporthub.notifications WHERE user_id = ? "
+                + "AND notification_type = 'REVIEW_CREATED' AND booking_id = ?", Long.class, bc.provider().userId(), done))
+                .isEqualTo(1);
+        String body = jdbc.queryForObject("SELECT body FROM sporthub.notifications WHERE booking_id = ? "
+                + "AND notification_type = 'REVIEW_CREATED'", String.class, done);
+        assertThat(body).contains("Sân sạch").endsWith("…\"").doesNotContain("x".repeat(101));
+        Map detail = get(client(), "/api/provider/bookings/" + done, bc.provider().token()).getBody();
+        assertThat(((Map) detail.get("review")).get("rating")).isEqualTo(5);
+    }
+
+    @Test
+    void validatesInput() {
+        BookableCourt bc = bookableCourt();
+        Customer c = customer();
+        UUID done = completedBooking(c, bc);
+        assertThat(review(c, done, 0).getStatusCode().value()).isEqualTo(400);
+        assertThat(review(c, done, 6).getStatusCode().value()).isEqualTo(400);
+        assertThat(review(c, done, null, null).getStatusCode().value()).isEqualTo(400);
+        assertThat(review(c, done, 5, "x".repeat(1001)).getStatusCode().value()).isEqualTo(400);
+        assertThat(review(c, done, 5, "x".repeat(1000)).getStatusCode().value()).isEqualTo(201);
+    }
+
+    private UUID reviewed(BookableCourt bc, int rating) {
+        Customer c = customer();
+        ResponseEntity<Map> r = review(c, completedBooking(c, bc), rating);
+        assertThat(r.getStatusCode().value()).isEqualTo(201);
+        return UUID.fromString((String) r.getBody().get("id"));
+    }
+
+    private ResponseEntity<Map> reply(String token, UUID reviewId, String text) {
+        return post(client(), "/api/provider/reviews/" + reviewId + "/reply", Map.of("reply", text), token);
+    }
+
+    private List<Map<String, Object>> items(ResponseEntity<Map> page) {
+        return (List<Map<String, Object>>) page.getBody().get("items");
+    }
+
+    @Test
+    void publicListAndRatingAverage() {
+        BookableCourt bc = bookableCourt();
+        String venue = "/api/catalog/venues/" + bc.venueId();
+        Map detail = get(client(), venue, null).getBody();
+        assertThat(detail.get("ratingAverage")).isNull();
+        assertThat(detail.get("ratingCount")).isEqualTo(0);
+        reviewed(bc, 4);
+        UUID newest = reviewed(bc, 5);
+        detail = get(client(), venue, null).getBody();
+        assertThat(new BigDecimal(detail.get("ratingAverage").toString())).isEqualByComparingTo("4.5");
+        assertThat(detail.get("ratingCount")).isEqualTo(2);
+        List<Map<String, Object>> list = items(get(client(), venue + "/reviews", null));
+        assertThat(list).hasSize(2);
+        assertThat(list.get(0).get("id")).isEqualTo(newest.toString());
+        assertThat(list.get(0).get("customerName")).isEqualTo("IT Customer");
+        reviewed(bc, 4);
+        detail = get(client(), venue, null).getBody();
+        assertThat(new BigDecimal(detail.get("ratingAverage").toString())).isEqualByComparingTo("4.3");
+        assertThat(detail.get("ratingCount")).isEqualTo(3);
+        Map<String, Object> card = items(get(client(), "/api/catalog/venues?q=" + detail.get("name"), null)).get(0);
+        assertThat(card.get("id")).isEqualTo(bc.venueId().toString());
+        assertThat(new BigDecimal(card.get("ratingAverage").toString())).isEqualByComparingTo("4.3");
+        assertThat(card.get("ratingCount")).isEqualTo(3);
+        assertThat(get(client(), "/api/catalog/venues/" + UUID.randomUUID() + "/reviews", null)
+                .getStatusCode().value()).isEqualTo(404);
+    }
+
+    @Test
+    void providerRepliesOnceOwnShopOnly() {
+        BookableCourt bc = bookableCourt();
+        BookableCourt other = bookableCourt();
+        UUID r = reviewed(bc, 3);
+        assertThat(reply(other.provider().token(), r, "Hi").getStatusCode().value()).isEqualTo(404);
+        assertThat(items(get(client(), "/api/provider/reviews?size=100", other.provider().token())))
+                .noneMatch(i -> r.toString().equals(((Map) i.get("review")).get("id")));
+        List<Map<String, Object>> own = items(get(client(), "/api/provider/reviews?size=100", bc.provider().token()));
+        assertThat(own).hasSize(1);
+        assertThat(own.get(0).get("venueName")).isNotNull();
+        assertThat(own.get(0).get("bookingCode")).isNotNull();
+        ResponseEntity<Map> ok = reply(bc.provider().token(), r, "Cảm ơn");
+        assertThat(ok.getStatusCode().value()).isEqualTo(200);
+        assertThat(ok.getBody().get("providerReply")).isEqualTo("Cảm ơn");
+        assertThat(ok.getBody().get("repliedAt")).isNotNull();
+        assertThat(reply(bc.provider().token(), r, "Lần 2").getStatusCode().value()).isEqualTo(409);
+        assertThat(reply(bc.provider().token(), r, "").getStatusCode().value()).isEqualTo(400);
+        assertThat(items(get(client(), "/api/catalog/venues/" + bc.venueId() + "/reviews", null)).get(0)
+                .get("providerReply")).isEqualTo("Cảm ơn");
+    }
+
+    @Test
+    void wrongRoleForbidden() {
+        assertThat(get(client(), "/api/provider/reviews", customer().token()).getStatusCode().value())
+                .isEqualTo(403);
+    }
+
+    private BigDecimal ratingAverage(BookableCourt bc) {
+        Object avg = get(client(), "/api/catalog/venues/" + bc.venueId(), null).getBody().get("ratingAverage");
+        return avg == null ? null : new BigDecimal(avg.toString());
+    }
+
+    @Test
+    void hideRemovesFromPublicAndAverage() {
+        BookableCourt bc = bookableCourt();
+        Admin admin = admin();
+        UUID five = reviewed(bc, 5);
+        Customer c = customer();
+        ResponseEntity<Map> created = review(c, completedBooking(c, bc), 3);
+        UUID three = UUID.fromString((String) created.getBody().get("id"));
+        assertThat(ratingAverage(bc)).isEqualByComparingTo("4.0");
+        long notesBefore = jdbc.queryForObject("SELECT count(*) FROM sporthub.notifications WHERE user_id = ?",
+                Long.class, c.userId());
+
+        String hide = "/api/admin/reviews/" + three + "/hide";
+        ResponseEntity<Map> hidden = post(client(), hide, Map.of("reason", "ngôn từ"), admin.token());
+        assertThat(hidden.getStatusCode().value()).isEqualTo(200);
+        assertThat(hidden.getBody().get("status")).isEqualTo("HIDDEN");
+        List<Map<String, Object>> pub = items(get(client(), "/api/catalog/venues/" + bc.venueId() + "/reviews", null));
+        assertThat(pub).extracting(m -> m.get("id")).containsExactly(five.toString());
+        assertThat(ratingAverage(bc)).isEqualByComparingTo("5.0");
+        assertThat(get(client(), "/api/catalog/venues/" + bc.venueId(), null).getBody().get("ratingCount")).isEqualTo(1);
+        assertThat(items(get(client(), "/api/provider/reviews?size=100", bc.provider().token())))
+                .anyMatch(i -> three.toString().equals(((Map) i.get("review")).get("id"))
+                        && "HIDDEN".equals(((Map) i.get("review")).get("status")));
+        assertThat(jdbc.queryForObject("SELECT after_data->>'reason' FROM sporthub.audit_logs WHERE entity_type = 'REVIEW' "
+                + "AND entity_id = ? AND action = 'REVIEW_HIDDEN'", String.class, three)).isEqualTo("ngôn từ");
+        assertThat(post(client(), hide, Map.of("reason", "lại"), admin.token()).getStatusCode().value()).isEqualTo(409);
+        assertThat(post(client(), hide, Map.of(), admin.token()).getStatusCode().value()).isEqualTo(400);
+        assertThat(allItems(client(), "/api/admin/reviews?status=HIDDEN", admin.token()))
+                .anyMatch(i -> three.toString().equals(((Map) i.get("review")).get("id")));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM sporthub.notifications WHERE user_id = ?",
+                Long.class, c.userId())).isEqualTo(notesBefore);
+
+        String unhide = "/api/admin/reviews/" + three + "/unhide";
+        assertThat(post(client(), unhide, Map.of(), admin.token()).getStatusCode().value()).isEqualTo(200);
+        assertThat(ratingAverage(bc)).isEqualByComparingTo("4.0");
+        assertThat(post(client(), unhide, Map.of(), admin.token()).getStatusCode().value()).isEqualTo(409);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM sporthub.audit_logs WHERE entity_id = ? "
+                + "AND action = 'REVIEW_UNHIDDEN'", Long.class, three)).isEqualTo(1);
+        assertThat(post(client(), "/api/admin/reviews/" + UUID.randomUUID() + "/unhide", Map.of(), admin.token())
+                .getStatusCode().value()).isEqualTo(404);
+    }
+
+    @Test
+    void nonAdminForbidden() {
+        BookableCourt bc = bookableCourt();
+        UUID r = reviewed(bc, 4);
+        assertThat(post(client(), "/api/admin/reviews/" + r + "/hide", Map.of("reason", "x"), bc.provider().token())
+                .getStatusCode().value()).isEqualTo(403);
+    }
+}

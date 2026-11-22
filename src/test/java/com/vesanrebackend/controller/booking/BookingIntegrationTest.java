@@ -324,11 +324,6 @@ class BookingIntegrationTest extends BookingApiTestSupport {
         assertThat(((Number) wallet.getBody().get("balance")).longValue()).isZero();
     }
 
-    private long shopBalance(UUID shopId) {
-        return jdbc.queryForObject("SELECT COALESCE(SUM(balance), 0) FROM sporthub.coin_wallets WHERE shop_id = ?",
-                Long.class, shopId);
-    }
-
     // Kiểm tra (spec case 7): hết giờ -> job trả cọc vào ví shop đúng một lần; booking đã hủy không bị đụng.
     @Test
     void completionPaysShopOnce() {

@@ -2,6 +2,7 @@ package com.vesanrebackend.service.catalog;
 
 import com.vesanrebackend.dto.catalog.CourtAvailabilityResponse;
 import com.vesanrebackend.dto.catalog.PublicVenueDetailResponse;
+import com.vesanrebackend.dto.review.RatingSummary;
 import com.vesanrebackend.dto.provider.CourtDetailResponse;
 import com.vesanrebackend.dto.provider.VenueDetailResponse;
 import com.vesanrebackend.entity.court.Court;
@@ -13,6 +14,7 @@ import com.vesanrebackend.entity.enums.VenueStatus;
 import com.vesanrebackend.entity.venue.Venue;
 import com.vesanrebackend.repository.CourtRepository;
 import com.vesanrebackend.repository.CourtScheduleBlockRepository;
+import com.vesanrebackend.repository.ReviewRepository;
 import com.vesanrebackend.repository.VenueAmenityRepository;
 import com.vesanrebackend.repository.VenueRepository;
 import com.vesanrebackend.service.provider.ProviderImageService;
@@ -23,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -39,17 +42,19 @@ public class PublicCatalogService {
     private final CourtScheduleBlockRepository blocks;
     private final ProviderImageService images;
     private final ImageStorage storage;
+    private final ReviewRepository reviews;
     private final Clock clock;
 
     public PublicCatalogService(VenueRepository venues, CourtRepository courts, VenueAmenityRepository venueAmenities,
                                 CourtScheduleBlockRepository blocks, ProviderImageService images, ImageStorage storage,
-                                Clock clock) {
+                                ReviewRepository reviews, Clock clock) {
         this.venues = venues;
         this.courts = courts;
         this.venueAmenities = venueAmenities;
         this.blocks = blocks;
         this.images = images;
         this.storage = storage;
+        this.reviews = reviews;
         this.clock = clock;
     }
 
@@ -62,6 +67,9 @@ public class PublicCatalogService {
                 .filter(c -> c.getStatus() == CourtStatus.ACTIVE).map(this::toItem).toList();
         BigDecimal fromPrice = courtItems.stream().flatMap(c -> c.pricingRules().stream())
                 .map(CourtDetailResponse.PricingRuleItem::pricePerHour).min(Comparator.naturalOrder()).orElse(null);
+        RatingSummary rating = reviews.ratingOf(venueId);
+        BigDecimal ratingAverage = rating.count() == 0 ? null
+                : BigDecimal.valueOf(rating.average()).setScale(1, RoundingMode.HALF_UP);
         return new PublicVenueDetailResponse(v.getId(), v.getName(), v.getDescription(), v.getAddressLine(),
                 v.getWard(), v.getDistrict(), v.getCity(), v.getProvince(), v.getLatitude(), v.getLongitude(),
                 v.getPhone(), new PublicVenueDetailResponse.ShopItem(v.getShop().getName(),
@@ -70,7 +78,7 @@ public class PublicCatalogService {
                 venueAmenities.findByVenueId(venueId).stream()
                         .map(a -> new VenueDetailResponse.AmenityItem(a.getAmenity().getId(), a.getAmenity().getCode(),
                                 a.getAmenity().getName(), a.getDetails())).toList(),
-                courtItems, fromPrice);
+                courtItems, fromPrice, ratingAverage, rating.count());
     }
 
     @Transactional(readOnly = true)

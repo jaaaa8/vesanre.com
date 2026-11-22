@@ -4,6 +4,7 @@ import com.vesanrebackend.security.CorsConfig;
 import com.vesanrebackend.security.SecurityConfig;
 import com.vesanrebackend.service.catalog.PublicCatalogService;
 import com.vesanrebackend.service.catalog.PublicVenueSearchService;
+import com.vesanrebackend.service.review.ReviewService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -32,6 +33,8 @@ class PublicCatalogControllerSecurityTest {
     private PublicVenueSearchService search;
     @MockitoBean
     private PublicCatalogService publicCatalog;
+    @MockitoBean
+    private ReviewService reviews;
 
     // API: GET /api/catalog/venues, GET /api/catalog/locations
     // Kiểm tra: không token vẫn trả 200.
