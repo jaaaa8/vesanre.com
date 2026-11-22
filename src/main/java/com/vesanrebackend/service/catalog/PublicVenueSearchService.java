@@ -100,6 +100,8 @@ public class PublicVenueSearchService {
 
         Map<UUID, String> covers = new LinkedHashMap<>();
         Map<UUID, List<String>> sports = new LinkedHashMap<>();
+        Map<UUID, BigDecimal> ratingAverages = new LinkedHashMap<>();
+        Map<UUID, Long> ratingCounts = new LinkedHashMap<>();
         if (!rows.isEmpty()) {
             MapSqlParameterSource ids = new MapSqlParameterSource("ids",
                     rows.stream().map(r -> (UUID) r.get("id")).toList());
@@ -115,13 +117,25 @@ public class PublicVenueSearchService {
                 sports.computeIfAbsent(rs.getObject("venue_id", UUID.class), k -> new ArrayList<>())
                         .add(rs.getString("name"));
             });
+            // Same rule as the venue detail: PUBLISHED reviews only, average rounded to 1 decimal.
+            jdbc.query("""
+                    select c.venue_id, round(avg(rv.rating), 1) as average, count(*) as total
+                      from sporthub.reviews rv
+                      join sporthub.bookings b on b.id = rv.booking_id
+                      join sporthub.court_schedule_blocks sb on sb.id = b.schedule_block_id
+                      join sporthub.courts c on c.id = sb.court_id
+                     where rv.status = 'PUBLISHED' and c.venue_id in (:ids) group by c.venue_id""", ids, rs -> {
+                UUID venueId = rs.getObject("venue_id", UUID.class);
+                ratingAverages.put(venueId, rs.getBigDecimal("average"));
+                ratingCounts.put(venueId, rs.getLong("total"));
+            });
         }
         List<VenueCardResponse> cards = rows.stream().map(r -> {
             UUID id = (UUID) r.get("id");
             return new VenueCardResponse(id, (String) r.get("name"), (String) r.get("address_line"),
                     (String) r.get("district"), (String) r.get("city"), (BigDecimal) r.get("latitude"),
                     (BigDecimal) r.get("longitude"), storage.url(covers.get(id)), sports.getOrDefault(id, List.of()),
-                    (BigDecimal) r.get("from_price"));
+                    (BigDecimal) r.get("from_price"), ratingAverages.get(id), ratingCounts.getOrDefault(id, 0L));
         }).toList();
         return PageResponse.of(new PageImpl<>(cards, pageable, total));
     }
