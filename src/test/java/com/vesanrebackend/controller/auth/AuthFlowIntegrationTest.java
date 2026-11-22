@@ -23,7 +23,7 @@ class AuthFlowIntegrationTest extends AdminApiTestSupport {
         RestClient client = client();
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String email = "it-" + suffix + "@example.com";
-        String phone = "09" + suffix;
+        String phone = "09" + String.format("%08d", Long.parseLong(suffix, 16) % 100_000_000);
         Map<String, Object> customer = Map.of("email", email, "password", "correct-password",
                 "displayName", "IT Customer", "phone", phone);
 
