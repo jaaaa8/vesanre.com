@@ -6,5 +6,6 @@ import java.util.UUID;
 
 public record VenueCardResponse(UUID id, String name, String addressLine, String district, String city,
                                 BigDecimal latitude, BigDecimal longitude, String coverImageUrl,
-                                List<String> sports, BigDecimal fromPrice) {
+                                List<String> sports, BigDecimal fromPrice,
+                                BigDecimal ratingAverage, long ratingCount) {
 }
