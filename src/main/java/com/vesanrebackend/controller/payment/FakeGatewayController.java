@@ -5,9 +5,7 @@ import com.vesanrebackend.entity.enums.CoinTopUpStatus;
 import com.vesanrebackend.repository.CoinTopUpRepository;
 import com.vesanrebackend.service.coin.TopUpService;
 import com.vesanrebackend.service.payment.FakeTopUpGateway;
-import com.vesanrebackend.service.payment.GatewayPayment;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -20,8 +18,6 @@ import org.springframework.web.util.HtmlUtils;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.time.Clock;
-import java.util.UUID;
 
 /** Dev-only payment page: the confirm button signs a payload and runs the same path as a real webhook. */
 @Controller
@@ -33,14 +29,11 @@ public class FakeGatewayController {
     private final CoinTopUpRepository topUps;
     private final TopUpService topUpService;
     private final FakeTopUpGateway gateway;
-    private final Clock clock;
 
-    public FakeGatewayController(CoinTopUpRepository topUps, TopUpService topUpService, FakeTopUpGateway gateway,
-                                 Clock clock) {
+    public FakeGatewayController(CoinTopUpRepository topUps, TopUpService topUpService, FakeTopUpGateway gateway) {
         this.topUps = topUps;
         this.topUpService = topUpService;
         this.gateway = gateway;
-        this.clock = clock;
     }
 
     @GetMapping("/{transferCode}")
@@ -56,11 +49,8 @@ public class FakeGatewayController {
         if (t == null) {
             return notFound();
         }
-        byte[] body = gateway.payload(new GatewayPayment("evt_" + UUID.randomUUID(), "tx_" + UUID.randomUUID(),
-                t.getTransferCode(), t.getCoinAmount() * 1000, clock.instant()));
-        HttpHeaders headers = new HttpHeaders();
-        headers.add("X-Signature", gateway.sign(body));
-        topUpService.receive(gateway.code(), body, headers);
+        FakeTopUpGateway.SignedEvent e = gateway.signedPaidEvent(t);
+        topUpService.receive(gateway.code(), e.body().getBytes(StandardCharsets.UTF_8), e.headers());
         return ResponseEntity.status(HttpStatus.SEE_OTHER).location(URI.create("/api/payment/fake/" + t.getTransferCode()))
                 .build();
     }

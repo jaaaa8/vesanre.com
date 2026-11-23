@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.HexFormat;
 import java.util.Map;
+import java.util.UUID;
 
 /** Dev-only gateway: HMAC-signed payloads, confirmed from the fake payment page. */
 @Component
@@ -64,6 +65,18 @@ public class FakeTopUpGateway implements TopUpGateway {
     public byte[] payload(GatewayPayment p) {
         return json.writeValueAsBytes(Map.of("eventId", p.eventId(), "transactionId", p.transactionId(),
                 "transferCode", p.transferCode(), "amountVnd", p.amountVnd(), "paidAt", p.paidAt().toString()));
+    }
+
+    public record SignedEvent(String body, HttpHeaders headers) {
+    }
+
+    /** A signed "paid" notification for the top-up, as the real gateway would send it. */
+    public SignedEvent signedPaidEvent(CoinTopUp t) {
+        byte[] body = payload(new GatewayPayment("evt_" + UUID.randomUUID(), "tx_" + UUID.randomUUID(),
+                t.getTransferCode(), t.getCoinAmount() * 1000, Instant.now()));
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("X-Signature", sign(body));
+        return new SignedEvent(new String(body, StandardCharsets.UTF_8), headers);
     }
 
     @Override
