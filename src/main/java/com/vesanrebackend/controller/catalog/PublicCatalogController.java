@@ -1,7 +1,7 @@
 package com.vesanrebackend.controller.catalog;
 
 import com.vesanrebackend.dto.admin.PageResponse;
-import com.vesanrebackend.dto.catalog.CourtAvailabilityResponse;
+import com.vesanrebackend.dto.catalog.VenueAvailabilityResponse;
 import com.vesanrebackend.dto.catalog.LocationResponse;
 import com.vesanrebackend.dto.catalog.PublicVenueDetailResponse;
 import com.vesanrebackend.dto.catalog.VenueCardResponse;
@@ -64,9 +64,9 @@ public class PublicCatalogController {
         return reviews.publicList(id, page, size);
     }
 
-    @GetMapping("/courts/{id}/availability")
-    public CourtAvailabilityResponse availability(@PathVariable UUID id,
+    @GetMapping("/venues/{id}/availability")
+    public VenueAvailabilityResponse availability(@PathVariable UUID id,
                                                   @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        return publicCatalog.availability(id, date);
+        return publicCatalog.venueAvailability(id, date);
     }
 }
