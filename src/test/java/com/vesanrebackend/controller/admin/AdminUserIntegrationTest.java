@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AdminUserIntegrationTest extends BookingApiTestSupport {
 
     private int loginStatus(String email) {
-        return post(client(), "/api/auth/login", Map.of("email", email, "password", "correct-password"))
+        return post(client(), "/api/auth/login", Map.of("email", email, "password", "correct-password1"))
                 .getStatusCode().value();
     }
 

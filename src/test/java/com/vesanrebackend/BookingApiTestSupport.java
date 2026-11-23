@@ -129,7 +129,7 @@ public abstract class BookingApiTestSupport extends AdminApiTestSupport {
         RestClient client = client();
         String email = "customer-" + UUID.randomUUID().toString().substring(0, 8) + "@example.com";
         UUID id = UUID.fromString((String) post(client, "/api/auth/register", Map.of("email", email,
-                "password", "correct-password", "displayName", "IT Customer")).getBody().get("id"));
+                "password", "correct-password1", "displayName", "IT Customer")).getBody().get("id"));
         return new Customer(id, email, login(client, email));
     }
 

@@ -49,7 +49,7 @@ public abstract class AdminApiTestSupport {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String email = "catalog-" + suffix + "@example.com";
         UUID userId = UUID.fromString((String) post(client, "/api/auth/register", Map.of("email", email,
-                "password", "correct-password", "displayName", "IT Catalog " + suffix)).getBody().get("id"));
+                "password", "correct-password1", "displayName", "IT Catalog")).getBody().get("id"));
         String applyToken = login(client, email);
         assertThat(post(client, "/api/profile/provider-application", Map.of("legalName", "Catalog " + suffix), applyToken)
                 .getStatusCode().value()).isEqualTo(201);
@@ -63,7 +63,7 @@ public abstract class AdminApiTestSupport {
         RestClient client = client();
         String email = "admin-" + UUID.randomUUID().toString().substring(0, 8) + "@example.com";
         UUID id = UUID.fromString((String) post(client, "/api/auth/register", Map.of("email", email,
-                "password", "correct-password", "displayName", "IT Admin")).getBody().get("id"));
+                "password", "correct-password1", "displayName", "IT Admin")).getBody().get("id"));
         jdbc.update("INSERT INTO sporthub.user_roles (user_id, role_code) VALUES (?, 'ADMIN')", id); // roles read at login
         return new Admin(id, login(client, email));
     }
@@ -149,7 +149,7 @@ public abstract class AdminApiTestSupport {
     }
 
     protected String login(RestClient client, String email) {
-        return (String) post(client, "/api/auth/login", Map.of("email", email, "password", "correct-password"))
+        return (String) post(client, "/api/auth/login", Map.of("email", email, "password", "correct-password1"))
                 .getBody().get("accessToken");
     }
 

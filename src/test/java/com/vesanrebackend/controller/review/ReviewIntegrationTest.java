@@ -35,10 +35,10 @@ class ReviewIntegrationTest extends BookingApiTestSupport {
         UUID done = completedBooking(c, bc);
         assertThat(review(other, done, 5).getStatusCode().value()).isEqualTo(404);
         assertThat(review(c, UUID.randomUUID(), 5).getStatusCode().value()).isEqualTo(404);
-        ResponseEntity<Map> ok = review(c, done, 4, "Sân đẹp");
+        ResponseEntity<Map> ok = review(c, done, 4, "Sân đẹp, nhân viên thân thiện");
         assertThat(ok.getStatusCode().value()).isEqualTo(201);
         assertThat(ok.getBody().get("rating")).isEqualTo(4);
-        assertThat(ok.getBody().get("comment")).isEqualTo("Sân đẹp");
+        assertThat(ok.getBody().get("comment")).isEqualTo("Sân đẹp, nhân viên thân thiện");
         assertThat(ok.getBody().get("customerName")).isEqualTo("IT Customer");
         assertThat(ok.getBody().get("status")).isEqualTo("PUBLISHED");
         assertThat(review(c, done, 5).getStatusCode().value()).isEqualTo(409);
@@ -71,8 +71,8 @@ class ReviewIntegrationTest extends BookingApiTestSupport {
         assertThat(review(c, done, 0).getStatusCode().value()).isEqualTo(400);
         assertThat(review(c, done, 6).getStatusCode().value()).isEqualTo(400);
         assertThat(review(c, done, null, null).getStatusCode().value()).isEqualTo(400);
-        assertThat(review(c, done, 5, "x".repeat(1001)).getStatusCode().value()).isEqualTo(400);
-        assertThat(review(c, done, 5, "x".repeat(1000)).getStatusCode().value()).isEqualTo(201);
+        assertThat(review(c, done, 5, "xy".repeat(251)).getStatusCode().value()).isEqualTo(400);
+        assertThat(review(c, done, 5, "xy".repeat(250)).getStatusCode().value()).isEqualTo(201);
     }
 
     private UUID reviewed(BookableVenue bc, int rating) {
