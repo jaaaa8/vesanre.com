@@ -68,7 +68,7 @@ class CoinWalletIntegrationTest extends BookingApiTestSupport {
     // Kiểm tra: cùng một khách đặt đồng thời 2 sân (mỗi cái 30 coin) khi chỉ có 40 coin -> một 201, một 409.
     @Test
     void concurrentBookingsSameCustomerOnlyOneAffordable() throws Exception {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         Customer c = customer();
         seedCoins(c.userId(), 40);
         java.time.LocalDate date = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).plusDays(1);
@@ -79,7 +79,7 @@ class CoinWalletIntegrationTest extends BookingApiTestSupport {
             for (String[] t : new String[][]{{"18:00", "19:00"}, {"20:00", "21:00"}}) {
                 futures.add(pool.submit(() -> {
                     go.await();
-                    return post(client(), "/api/bookings", Map.of("courtId", bc.courtId().toString(),
+                    return post(client(), "/api/bookings", Map.of("venueId", bc.venueId().toString(),
                             "date", date.toString(), "startTime", t[0], "endTime", t[1]), c.token());
                 }));
             }

@@ -28,7 +28,7 @@ class WithdrawalIntegrationTest extends BookingApiTestSupport {
     // Kiểm tra (Review Focus 2): tạo lệnh trừ coin ngay; X < 100 -> 400; số dư < X -> 409; ví = tổng sổ.
     @Test
     void createDeductsImmediately() {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         seedShopCoins(bc, 150);
         String t = bc.provider().token();
         assertThat(withdraw(t, 99).getStatusCode().value()).isEqualTo(400);
@@ -46,8 +46,8 @@ class WithdrawalIntegrationTest extends BookingApiTestSupport {
     @Test
     @SuppressWarnings("unchecked")
     void listShowsOnlyOwnShopNewestFirst() {
-        BookableCourt a = bookableCourt();
-        BookableCourt b = bookableCourt();
+        BookableVenue a = bookableVenue(1, 30);
+        BookableVenue b = bookableVenue(1, 30);
         seedShopCoins(a, 250);
         seedShopCoins(b, 100);
         String first = (String) withdraw(a.provider().token(), 100).getBody().get("id");
@@ -61,7 +61,7 @@ class WithdrawalIntegrationTest extends BookingApiTestSupport {
     // Kiểm tra (Q22): chủ shop bị khóa dùng token cũ -> 403, số dư không đổi.
     @Test
     void suspendedProviderCannotCreate() {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         seedShopCoins(bc, 150);
         jdbc.update("UPDATE sporthub.users SET status = 'SUSPENDED' WHERE id = ?", bc.provider().userId());
         assertThat(withdraw(bc.provider().token(), 100).getStatusCode().value()).isEqualTo(403);
@@ -70,7 +70,7 @@ class WithdrawalIntegrationTest extends BookingApiTestSupport {
 
     @Test
     void blankBankFieldsRejected() {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         seedShopCoins(bc, 150);
         assertThat(withdraw(bc.provider().token(), 100, "").getStatusCode().value()).isEqualTo(400);
         assertThat(shopBalance(bc.shopId())).isEqualTo(150);
@@ -94,7 +94,7 @@ class WithdrawalIntegrationTest extends BookingApiTestSupport {
     // Kiểm tra (Review Focus 1, 2): reject hoàn coin đúng một lần; reject/mark-paid lần sau -> 409; ví = tổng sổ.
     @Test
     void rejectRefundsOnceThenMarkPaidConflicts() {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         seedShopCoins(bc, 100);
         Admin a = admin();
         String id = (String) withdraw(bc.provider().token(), 100).getBody().get("id");
@@ -117,7 +117,7 @@ class WithdrawalIntegrationTest extends BookingApiTestSupport {
     // Kiểm tra: mark-paid giữ coin đã trừ, ghi ref/paidAt, audit + thông báo; thiếu ref -> 400.
     @Test
     void markPaidKeepsCoinsDeducted() {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         seedShopCoins(bc, 200);
         Admin a = admin();
         String other = (String) withdraw(bc.provider().token(), 100).getBody().get("id");
@@ -138,7 +138,7 @@ class WithdrawalIntegrationTest extends BookingApiTestSupport {
     // Kiểm tra: lọc PENDING trả lệnh vừa tạo kèm shopName.
     @Test
     void adminListFiltersPending() {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         seedShopCoins(bc, 100);
         String id = (String) withdraw(bc.provider().token(), 100).getBody().get("id");
         String shopName = jdbc.queryForObject("SELECT name FROM sporthub.shops WHERE id = ?", String.class, bc.shopId());
@@ -151,7 +151,7 @@ class WithdrawalIntegrationTest extends BookingApiTestSupport {
     // Kiểm tra (Q22): chủ shop bị khóa sau khi tạo lệnh, admin vẫn duyệt được.
     @Test
     void suspendedOwnerRequestStillReviewable() {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         seedShopCoins(bc, 100);
         String id = (String) withdraw(bc.provider().token(), 100).getBody().get("id");
         jdbc.update("UPDATE sporthub.users SET status = 'SUSPENDED' WHERE id = ?", bc.provider().userId());
@@ -161,7 +161,7 @@ class WithdrawalIntegrationTest extends BookingApiTestSupport {
 
     @Test
     void providerForbiddenOnAdminApi() {
-        assertThat(get(client(), "/api/admin/withdrawals", bookableCourt().provider().token())
+        assertThat(get(client(), "/api/admin/withdrawals", bookableVenue(1, 30).provider().token())
                 .getStatusCode().value()).isEqualTo(403);
     }
 }

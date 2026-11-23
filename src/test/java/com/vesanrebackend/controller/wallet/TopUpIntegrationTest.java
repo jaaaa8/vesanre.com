@@ -327,12 +327,12 @@ class TopUpIntegrationTest extends BookingApiTestSupport {
     // Kiểm tra: đặt sân (cọc 30) và webhook nạp 50 chạy đồng thời -> 100 - 30 + 50 = 120 = tổng ledger.
     @Test
     void concurrentBookingAndTopUpNoLostUpdate() throws Exception {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         Customer c = customer();
         seedCoins(c.userId(), 100);
         Map<String, Object> top = createTopUp(c, 50).getBody();
         LocalDate date = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).plusDays(1);
-        Map<String, Object> bookBody = Map.of("courtId", bc.courtId().toString(), "date", date.toString(),
+        Map<String, Object> bookBody = Map.of("venueId", bc.venueId().toString(), "date", date.toString(),
                 "startTime", "18:00", "endTime", "19:00");
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {

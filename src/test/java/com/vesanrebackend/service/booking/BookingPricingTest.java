@@ -7,7 +7,6 @@ import com.vesanrebackend.entity.court.CourtPricingRule;
 import com.vesanrebackend.service.booking.BookingPricing.Quote;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -108,17 +107,6 @@ class BookingPricingTest {
         assertNotBookable(slots, LocalTime.of(18, 0), LocalTime.of(18, 0));
         assertNotBookable(slots, LocalTime.of(19, 0), LocalTime.of(18, 0));
         assertNotBookable(slots, LocalTime.of(23, 0), LocalTime.MIDNIGHT);
-    }
-
-    // Kiểm tra: depositPercent chỉ nhận số nguyên 1-100, còn lại về 30.
-    @Test
-    void depositPercentFallsBackTo30() {
-        var json = JsonMapper.builder().build();
-        for (String bad : new String[]{null, "nope", "{}", "{\"depositPercent\":\"50\"}", "{\"depositPercent\":0}",
-                "{\"depositPercent\":101}", "{\"depositPercent\":12.5}"}) {
-            assertThat(BookingPricing.depositPercent(bad, json)).as(String.valueOf(bad)).isEqualTo(30);
-        }
-        assertThat(BookingPricing.depositPercent("{\"depositPercent\":50}", json)).isEqualTo(50);
     }
 
     // Kiểm tra: cọc 0% cho quote hợp lệ với deposit 0 coin.
