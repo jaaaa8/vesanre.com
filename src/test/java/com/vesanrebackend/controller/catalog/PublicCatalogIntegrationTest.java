@@ -80,8 +80,7 @@ class PublicCatalogIntegrationTest extends AdminApiTestSupport {
         prices(p.token(), c1, 360, 1320, 100000);
         UUID c2 = court(p.token(), v1, "C2");
         prices(p.token(), c2, 360, 1320, 50000);
-        assertThat(patch(client, "/api/provider/courts/" + c2, Map.of("status", "INACTIVE"), p.token())
-                .getStatusCode().value()).isEqualTo(200);
+        jdbc.update("UPDATE sporthub.courts SET status = \'INACTIVE\' WHERE id = ?", c2);
         String key = "cover-" + UUID.randomUUID();
         jdbc.update("INSERT INTO sporthub.venue_images (id, venue_id, storage_key, sort_order, is_cover) VALUES (gen_random_uuid(), ?, ?, 0, true)",
                 v1, key);
@@ -93,8 +92,7 @@ class PublicCatalogIntegrationTest extends AdminApiTestSupport {
 
         UUID v3 = activeVenue(p, "V3", city, "D1");
         UUID c4 = court(p.token(), v3, "C1");
-        assertThat(patch(client, "/api/provider/courts/" + c4, Map.of("status", "INACTIVE"), p.token())
-                .getStatusCode().value()).isEqualTo(200);
+        jdbc.update("UPDATE sporthub.courts SET status = \'INACTIVE\' WHERE id = ?", c4);
 
         assertThat(ids(client, Map.of("city", city, "sort", "price_asc")))
                 .containsExactly(v1.toString(), v2.toString(), v3.toString());
@@ -144,8 +142,7 @@ class PublicCatalogIntegrationTest extends AdminApiTestSupport {
         prices(p.token(), c1, 360, 720, 100000, 720, 1320, 80000);
         jdbc.update("UPDATE sporthub.court_pricing_rules SET is_active = false WHERE court_id = ? AND price_per_hour = 80000", c1);
         UUID c2 = court(p.token(), venue, "C2");
-        assertThat(patch(client, "/api/provider/courts/" + c2, Map.of("status", "INACTIVE"), p.token())
-                .getStatusCode().value()).isEqualTo(200);
+        jdbc.update("UPDATE sporthub.courts SET status = \'INACTIVE\' WHERE id = ?", c2);
         assertThat(put(client, "/api/provider/venues/" + venue + "/amenities",
                 List.of(Map.of("amenityId", jdbc.queryForObject("SELECT id FROM sporthub.amenities WHERE code = 'PARKING'", UUID.class).toString())),
                 p.token()).getStatusCode().value()).isEqualTo(200);
@@ -236,8 +233,7 @@ class PublicCatalogIntegrationTest extends AdminApiTestSupport {
         hours(p.token(), ok, "06:00", "22:00", null);
         prices(p.token(), ok, 0, 1440, 100000);
         UUID inactive = court(p.token(), venue, "C2");
-        assertThat(patch(client, "/api/provider/courts/" + inactive, Map.of("status", "INACTIVE"), p.token())
-                .getStatusCode().value()).isEqualTo(200);
+        jdbc.update("UPDATE sporthub.courts SET status = \'INACTIVE\' WHERE id = ?", inactive);
         UUID suspended = activeVenue(p, "Avail3", uniqueCity(), "D1");
         UUID inSuspended = court(p.token(), suspended, "C1");
         jdbc.update("UPDATE sporthub.venues SET status = 'SUSPENDED' WHERE id = ?", suspended);
@@ -279,49 +275,37 @@ class PublicCatalogIntegrationTest extends AdminApiTestSupport {
         return id;
     }
 
+    // The court API is gone (courts are hidden, set up per venue): these helpers seed court rows directly.
     UUID court(String token, UUID venueId, String code) {
-        ResponseEntity<Map> created = post(client(), "/api/provider/venues/" + venueId + "/courts", Map.of("code", code,
-                "name", "Court " + code, "capacity", 4, "bookingStepMinutes", 60, "minBookingMinutes", 60,
-                "maxBookingMinutes", 120), token);
-        assertThat(created.getStatusCode().value()).isEqualTo(201);
-        return UUID.fromString((String) created.getBody().get("id"));
+        return jdbc.queryForObject("INSERT INTO sporthub.courts (id, venue_id, code, name, capacity, booking_step_minutes, "
+                + "min_booking_minutes, max_booking_minutes) VALUES (gen_random_uuid(), ?, ?, ?, 4, 60, 60, 120) RETURNING id",
+                UUID.class, venueId, code, "Court " + code);
     }
 
     void sport(String token, UUID courtId, String code) {
-        assertThat(put(client(), "/api/provider/courts/" + courtId + "/sports",
-                List.of(Map.of("sportId", sportId(code).toString(), "primary", true)), token).getStatusCode().value())
-                .isEqualTo(200);
+        jdbc.update("INSERT INTO sporthub.court_sports (court_id, sport_id, is_primary) VALUES (?, ?, true)", courtId,
+                sportId(code));
     }
 
     // triples of (startMinute, endMinute, pricePerHour), repeated for weekdays 0-6
     void prices(String token, UUID courtId, int... startEndPrice) {
-        List<Map<String, Object>> rules = new ArrayList<>();
         for (int weekday = 0; weekday < 7; weekday++) {
             for (int i = 0; i < startEndPrice.length; i += 3) {
-                rules.add(Map.of("weekday", weekday, "startMinute", startEndPrice[i], "endMinute", startEndPrice[i + 1],
-                        "pricePerHour", startEndPrice[i + 2]));
+                jdbc.update("INSERT INTO sporthub.court_pricing_rules (id, court_id, weekday, start_minute, end_minute, "
+                                + "price_per_hour, currency) VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, 'VND')", courtId,
+                        weekday, startEndPrice[i], startEndPrice[i + 1], startEndPrice[i + 2]);
             }
         }
-        assertThat(put(client(), "/api/provider/courts/" + courtId + "/pricing-rules", rules, token)
-                .getStatusCode().value()).isEqualTo(200);
     }
 
-    // closedWeekday (nullable) is sent as closed with no hours
+    // closedWeekday (nullable) is stored as closed with no hours
     void hours(String token, UUID courtId, String opens, String closes, Integer closedWeekday) {
-        List<Map<String, Object>> items = new ArrayList<>();
         for (int weekday = 0; weekday < 7; weekday++) {
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("weekday", weekday);
             boolean closed = closedWeekday != null && closedWeekday == weekday;
-            item.put("closed", closed);
-            if (!closed) {
-                item.put("opensAt", opens);
-                item.put("closesAt", closes);
-            }
-            items.add(item);
+            jdbc.update("INSERT INTO sporthub.court_operating_hours (court_id, weekday, opens_at, closes_at, is_closed) "
+                            + "VALUES (?, ?, ?, ?, ?)", courtId, weekday, closed ? null : java.time.LocalTime.parse(opens),
+                    closed ? null : java.time.LocalTime.parse(closes), closed);
         }
-        assertThat(put(client(), "/api/provider/courts/" + courtId + "/operating-hours", items, token)
-                .getStatusCode().value()).isEqualTo(200);
     }
 
     UUID sportId(String code) {

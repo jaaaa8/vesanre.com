@@ -6,7 +6,10 @@ import com.vesanrebackend.dto.provider.VenueAmenityRequest;
 import com.vesanrebackend.dto.provider.VenueChangeRequest;
 import com.vesanrebackend.dto.provider.VenueDetailResponse;
 import com.vesanrebackend.dto.provider.VenueSummaryResponse;
+import com.vesanrebackend.dto.provider.VenueSetupRequest;
+import com.vesanrebackend.dto.provider.VenueSetupResponse;
 import com.vesanrebackend.service.provider.ProviderVenueService;
+import com.vesanrebackend.service.provider.VenueSetupService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.http.HttpStatus;
@@ -32,9 +35,11 @@ import java.util.UUID;
 @PreAuthorize("hasRole('PROVIDER')")
 public class ProviderVenueController {
     private final ProviderVenueService venues;
+    private final VenueSetupService setup;
 
-    public ProviderVenueController(ProviderVenueService venues) {
+    public ProviderVenueController(ProviderVenueService venues, VenueSetupService setup) {
         this.venues = venues;
+        this.setup = setup;
     }
 
     @GetMapping
@@ -81,6 +86,17 @@ public class ProviderVenueController {
     public VenueDetailResponse replaceAmenities(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
                                                 @RequestBody List<@NotNull @Valid VenueAmenityRequest> items) {
         return venues.replaceAmenities(userId(jwt), id, items);
+    }
+
+    @GetMapping("/{id}/setup")
+    public VenueSetupResponse getSetup(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
+        return setup.get(userId(jwt), id);
+    }
+
+    @PutMapping("/{id}/setup")
+    public VenueSetupResponse replaceSetup(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+                                           @Valid @RequestBody VenueSetupRequest request) {
+        return setup.replace(userId(jwt), id, request);
     }
 
     private static UUID userId(Jwt jwt) {

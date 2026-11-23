@@ -72,9 +72,8 @@ public abstract class AdminApiTestSupport {
     protected UUID pendingVenue(String token, String name) {
         RestClient client = client();
         String venueId = (String) post(client, "/api/provider/venues", venueBody(name), token).getBody().get("id");
-        assertThat(post(client, "/api/provider/venues/" + venueId + "/courts", Map.of("code", "C1", "name", "Court 1",
-                "capacity", 4, "bookingStepMinutes", 60, "minBookingMinutes", 60, "maxBookingMinutes", 120), token)
-                .getStatusCode().value()).isEqualTo(201);
+        assertThat(put(client, "/api/provider/venues/" + venueId + "/setup", setupBody(1, 30), token)
+                .getStatusCode().value()).isEqualTo(200);
         assertThat(post(client, "/api/provider/venues/" + venueId + "/submit", Map.of(), token).getStatusCode().value())
                 .isEqualTo(200);
         return UUID.fromString(venueId);
@@ -128,6 +127,18 @@ public abstract class AdminApiTestSupport {
     protected Map<String, Object> venueBody(String name) {
         return Map.of("name", name, "addressLine", "1 Le Loi", "district", "Quan 1", "city", "HCM",
                 "latitude", 10.5, "longitude", 106.7);
+    }
+
+    /** Default venue setup: BADMINTON, open 06:00-22:00 all week, 100000/h all day. */
+    protected Map<String, Object> setupBody(int courtCount, int depositPercent) {
+        List<Map<String, Object>> hours = new ArrayList<>();
+        List<Map<String, Object>> rules = new ArrayList<>();
+        for (int weekday = 0; weekday < 7; weekday++) {
+            hours.add(Map.of("weekday", weekday, "closed", false, "opensAt", "06:00", "closesAt", "22:00"));
+            rules.add(Map.of("weekday", weekday, "startMinute", 0, "endMinute", 1440, "pricePerHour", 100000));
+        }
+        return Map.of("sportCode", "BADMINTON", "courtCount", courtCount, "depositPercent", depositPercent,
+                "operatingHours", hours, "pricingRules", rules);
     }
 
     protected RestClient client() {

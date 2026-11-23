@@ -3,12 +3,9 @@ package com.vesanrebackend.service.provider;
 import com.vesanrebackend.dto.provider.ImageOrderRequest;
 import com.vesanrebackend.dto.provider.ImageResponse;
 import com.vesanrebackend.entity.ImageRow;
-import com.vesanrebackend.entity.court.Court;
-import com.vesanrebackend.entity.court.CourtImage;
 import com.vesanrebackend.entity.venue.Venue;
 import com.vesanrebackend.entity.venue.VenueImage;
 import com.vesanrebackend.repository.CourtImageRepository;
-import com.vesanrebackend.repository.CourtRepository;
 import com.vesanrebackend.repository.VenueImageRepository;
 import com.vesanrebackend.repository.VenueRepository;
 import com.vesanrebackend.service.storage.ImageCleanup;
@@ -35,16 +32,14 @@ public class ProviderImageService {
     private static final int MAX_IMAGES = 10;
 
     private final VenueRepository venues;
-    private final CourtRepository courts;
     private final VenueImageRepository venueImages;
     private final CourtImageRepository courtImages;
     private final ImageStorage storage;
     private final ApplicationEventPublisher events;
 
-    public ProviderImageService(VenueRepository venues, CourtRepository courts, VenueImageRepository venueImages,
+    public ProviderImageService(VenueRepository venues, VenueImageRepository venueImages,
                                 CourtImageRepository courtImages, ImageStorage storage, ApplicationEventPublisher events) {
         this.venues = venues;
-        this.courts = courts;
         this.venueImages = venueImages;
         this.courtImages = courtImages;
         this.storage = storage;
@@ -62,25 +57,9 @@ public class ProviderImageService {
     }
 
     @Transactional
-    public ImageResponse addCourtImage(UUID userId, UUID courtId, MultipartFile file, String altText) {
-        Court court = ownedCourt(userId, courtId);
-        CourtImage image = new CourtImage();
-        image.setCourt(court);
-        fillNew(image, courtImages.findByCourtIdOrderBySortOrder(courtId), file, "vesanre/courts/" + courtId, altText);
-        courtImages.saveAndFlush(image);
-        return toResponse(image);
-    }
-
-    @Transactional
     public List<ImageResponse> reorderVenueImages(UUID userId, UUID venueId, List<ImageOrderRequest> items) {
         ownedVenue(userId, venueId);
         return reorder(venueImages.findByVenueIdOrderBySortOrder(venueId), items, venueImages);
-    }
-
-    @Transactional
-    public List<ImageResponse> reorderCourtImages(UUID userId, UUID courtId, List<ImageOrderRequest> items) {
-        ownedCourt(userId, courtId);
-        return reorder(courtImages.findByCourtIdOrderBySortOrder(courtId), items, courtImages);
     }
 
     @Transactional
@@ -90,15 +69,6 @@ public class ProviderImageService {
         venueImages.delete(image);
         venueImages.flush(); // the old cover row must be gone before another row becomes cover
         afterDelete(image, venueImages.findByVenueIdOrderBySortOrder(venueId));
-    }
-
-    @Transactional
-    public void deleteCourtImage(UUID userId, UUID courtId, UUID imageId) {
-        ownedCourt(userId, courtId);
-        CourtImage image = courtImages.findByIdAndCourtId(imageId, courtId).orElseThrow(() -> notFound("Image not found"));
-        courtImages.delete(image);
-        courtImages.flush();
-        afterDelete(image, courtImages.findByCourtIdOrderBySortOrder(courtId));
     }
 
     // Venue DRAFT delete: rows go with ON DELETE CASCADE; objects are dropped once that commits.
@@ -113,10 +83,6 @@ public class ProviderImageService {
     // Queried, not read from Venue.images / Court.images: the replace-all PUTs bulk-delete and detach the entity.
     public List<ImageResponse> ofVenue(UUID venueId) {
         return toResponses(venueImages.findByVenueIdOrderBySortOrder(venueId));
-    }
-
-    public List<ImageResponse> ofCourt(UUID courtId) {
-        return toResponses(courtImages.findByCourtIdOrderBySortOrder(courtId));
     }
 
     private List<ImageResponse> toResponses(List<? extends ImageRow> rows) {
@@ -183,10 +149,6 @@ public class ProviderImageService {
 
     private Venue ownedVenue(UUID userId, UUID venueId) {
         return venues.findOwned(venueId, userId).orElseThrow(() -> notFound("Venue not found"));
-    }
-
-    private Court ownedCourt(UUID userId, UUID courtId) {
-        return courts.findOwned(courtId, userId).orElseThrow(() -> notFound("Court not found"));
     }
 
     private static ResponseStatusException notFound(String message) {

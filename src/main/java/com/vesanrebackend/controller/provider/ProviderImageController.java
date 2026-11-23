@@ -55,26 +55,6 @@ public class ProviderImageController {
         images.deleteVenueImage(userId(jwt), id, imageId);
     }
 
-    @PostMapping(path = "/courts/{id}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @ResponseStatus(HttpStatus.CREATED)
-    public ImageResponse addCourtImage(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
-                                       @RequestParam("file") MultipartFile file,
-                                       @RequestParam(required = false) @Size(max = 255) String altText) {
-        return images.addCourtImage(userId(jwt), id, file, altText);
-    }
-
-    @PutMapping("/courts/{id}/images")
-    public List<ImageResponse> reorderCourtImages(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
-                                                  @RequestBody List<@NotNull @Valid ImageOrderRequest> items) {
-        return images.reorderCourtImages(userId(jwt), id, items);
-    }
-
-    @DeleteMapping("/courts/{id}/images/{imageId}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteCourtImage(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id, @PathVariable UUID imageId) {
-        images.deleteCourtImage(userId(jwt), id, imageId);
-    }
-
     private static UUID userId(Jwt jwt) {
         return UUID.fromString(jwt.getSubject());
     }
