@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Loại test: unit thuần (không Spring) cho FakeTopUpGateway: chữ ký HMAC, parse payload, paymentUrl. */
 class FakeTopUpGatewayTest {
-    private final FakeTopUpGateway gw = new FakeTopUpGateway("s3cret", "http://lan:8080", new ObjectMapper());
+    private final FakeTopUpGateway gw = new FakeTopUpGateway("s3cret", "http://lan:8080", new ObjectMapper(), java.time.Clock.systemUTC());
     private final GatewayPayment p = new GatewayPayment("evt_1", "tx_1", "VSRABCDEFGH", 100000L,
             Instant.parse("2026-11-21T10:00:00Z"));
 
@@ -57,7 +57,7 @@ class FakeTopUpGatewayTest {
     @Test
     void emptyOrPlaceholderSecretFailsFast() {
         for (String s : new String[]{"", "  ", "replace-with-dev-secret"}) {
-            assertThatThrownBy(() -> new FakeTopUpGateway(s, "http://lan:8080", new ObjectMapper()))
+            assertThatThrownBy(() -> new FakeTopUpGateway(s, "http://lan:8080", new ObjectMapper(), java.time.Clock.systemUTC()))
                     .isInstanceOf(IllegalStateException.class);
         }
     }
