@@ -137,7 +137,7 @@ class ProviderCatalogIntegrationTest extends AdminApiTestSupport {
         // Spec #1: submit without an ACTIVE court -> 409; with one -> PENDING_REVIEW, then no re-submit / no delete.
         assertThat(post(client, "/api/provider/venues/" + id + "/submit", Map.of(), token).getStatusCode().value()).isEqualTo(409);
         jdbc.update("INSERT INTO sporthub.courts (id, venue_id, code, name, capacity, booking_step_minutes, min_booking_minutes, max_booking_minutes)"
-                + " VALUES (gen_random_uuid(), ?, 'C1', 'Court 1', 4, 30, 60, 120)", UUID.fromString(id));
+                + " VALUES (gen_random_uuid(), ?, 'C1', 'Court 1', 4, 60, 60, 120)", UUID.fromString(id));
         ResponseEntity<Map> submitted = post(client, "/api/provider/venues/" + id + "/submit", Map.of(), token);
         assertThat(submitted.getStatusCode().value()).isEqualTo(200);
         assertThat(submitted.getBody()).containsEntry("status", "PENDING_REVIEW");
@@ -148,7 +148,7 @@ class ProviderCatalogIntegrationTest extends AdminApiTestSupport {
         // DRAFT venue with a court: DELETE -> 204 (courts removed first), then 404.
         String draft = (String) post(client, "/api/provider/venues", venueBody("San B"), token).getBody().get("id");
         jdbc.update("INSERT INTO sporthub.courts (id, venue_id, code, name, capacity, booking_step_minutes, min_booking_minutes, max_booking_minutes)"
-                + " VALUES (gen_random_uuid(), ?, 'C1', 'Court 1', 4, 30, 60, 120)", UUID.fromString(draft));
+                + " VALUES (gen_random_uuid(), ?, 'C1', 'Court 1', 4, 60, 60, 120)", UUID.fromString(draft));
         assertThat(delete(client, "/api/provider/venues/" + draft, token).getStatusCode().value()).isEqualTo(204);
         assertThat(get(client, "/api/provider/venues/" + draft, token).getStatusCode().value()).isEqualTo(404);
     }
@@ -275,7 +275,7 @@ class ProviderCatalogIntegrationTest extends AdminApiTestSupport {
         String venueId = (String) post(client, "/api/provider/venues", venueBody("San E"), token).getBody().get("id");
         String courts = "/api/provider/venues/" + venueId + "/courts";
         Map<String, Object> body = Map.of("code", " C1 ", "name", "Court 1", "capacity", 4,
-                "bookingStepMinutes", 30, "minBookingMinutes", 60, "maxBookingMinutes", 120);
+                "bookingStepMinutes", 60, "minBookingMinutes", 60, "maxBookingMinutes", 120);
 
         ResponseEntity<Map> created = post(client, courts, body, token);
         assertThat(created.getStatusCode().value()).isEqualTo(201);
@@ -313,10 +313,10 @@ class ProviderCatalogIntegrationTest extends AdminApiTestSupport {
         assertThat(patch(client, path, Map.of("status", "DELETED"), token).getStatusCode().value()).isEqualTo(400);
         assertThat(patch(client, path, Map.of("bookingStepMinutes", 50), token).getStatusCode().value()).isEqualTo(400);
         assertThat(patch(client, path, Map.of("maxBookingMinutes", 30), token).getStatusCode().value()).isEqualTo(400);
-        assertThat(patch(client, path, Map.of("minBookingMinutes", 120, "maxBookingMinutes", 240), token)
+        assertThat(patch(client, path, Map.of("minBookingMinutes", 60, "maxBookingMinutes", 120), token)
                 .getStatusCode().value()).isEqualTo(200);
-        assertThat(get(client, path, token).getBody()).containsEntry("minBookingMinutes", 120)
-                .containsEntry("maxBookingMinutes", 240).containsEntry("status", "INACTIVE");
+        assertThat(get(client, path, token).getBody()).containsEntry("minBookingMinutes", 60)
+                .containsEntry("maxBookingMinutes", 120).containsEntry("status", "INACTIVE");
 
         // Another provider: 404 on create / GET / PATCH.
         assertThat(post(client, courts, merge(body, "code", "C9"), other).getStatusCode().value()).isEqualTo(404);
@@ -333,7 +333,7 @@ class ProviderCatalogIntegrationTest extends AdminApiTestSupport {
         String other = verifiedProvider().token();
         String venueId = (String) post(client, "/api/provider/venues", venueBody("San G"), token).getBody().get("id");
         String id = (String) post(client, "/api/provider/venues/" + venueId + "/courts", Map.of("code", "C1", "name", "Court 1",
-                "capacity", 4, "bookingStepMinutes", 30, "minBookingMinutes", 60, "maxBookingMinutes", 120), token)
+                "capacity", 4, "bookingStepMinutes", 60, "minBookingMinutes", 60, "maxBookingMinutes", 120), token)
                 .getBody().get("id");
         String path = "/api/provider/courts/" + id;
 
@@ -434,7 +434,7 @@ class ProviderCatalogIntegrationTest extends AdminApiTestSupport {
         String submit = "/api/provider/venues/" + venueId + "/submit";
         assertThat(post(client, submit, Map.of(), token).getStatusCode().value()).isEqualTo(409); // no court yet
         String courtId = (String) post(client, "/api/provider/venues/" + venueId + "/courts", Map.of("code", "C1", "name", "Court 1",
-                "capacity", 4, "bookingStepMinutes", 30, "minBookingMinutes", 60, "maxBookingMinutes", 120), token)
+                "capacity", 4, "bookingStepMinutes", 60, "minBookingMinutes", 60, "maxBookingMinutes", 120), token)
                 .getBody().get("id");
         String court = "/api/provider/courts/" + courtId;
         assertThat(put(client, court + "/operating-hours", hours(7, "06:00", "22:00"), token).getStatusCode().value()).isEqualTo(200);
@@ -562,7 +562,7 @@ class ProviderCatalogIntegrationTest extends AdminApiTestSupport {
         String token = verifiedProvider().token();
         String venueId = (String) post(client, "/api/provider/venues", venueBody("San Img3"), token).getBody().get("id");
         String courtId = (String) post(client, "/api/provider/venues/" + venueId + "/courts", Map.of("code", "C1", "name", "Court 1",
-                "capacity", 4, "bookingStepMinutes", 30, "minBookingMinutes", 60, "maxBookingMinutes", 120), token).getBody().get("id");
+                "capacity", 4, "bookingStepMinutes", 60, "minBookingMinutes", 60, "maxBookingMinutes", 120), token).getBody().get("id");
         String path = "/api/provider/courts/" + courtId + "/images";
 
         ResponseEntity<Map> first = upload(client, HttpMethod.POST, path, null, token);
@@ -650,7 +650,7 @@ class ProviderCatalogIntegrationTest extends AdminApiTestSupport {
         String token = verifiedProvider().token();
         String venueId = (String) post(client, "/api/provider/venues", venueBody("San Img6"), token).getBody().get("id");
         String courtId = (String) post(client, "/api/provider/venues/" + venueId + "/courts", Map.of("code", "C1", "name", "Court 1",
-                "capacity", 4, "bookingStepMinutes", 30, "minBookingMinutes", 60, "maxBookingMinutes", 120), token).getBody().get("id");
+                "capacity", 4, "bookingStepMinutes", 60, "minBookingMinutes", 60, "maxBookingMinutes", 120), token).getBody().get("id");
         upload(client, HttpMethod.POST, "/api/provider/venues/" + venueId + "/images", null, token);
         upload(client, HttpMethod.POST, "/api/provider/courts/" + courtId + "/images", null, token);
         List<String> keys = jdbc.queryForList("SELECT storage_key FROM sporthub.venue_images WHERE venue_id = ?"

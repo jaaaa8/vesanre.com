@@ -133,7 +133,7 @@ public abstract class BookingApiTestSupport extends AdminApiTestSupport {
         return new Customer(id, email, login(client, email));
     }
 
-    /** ACTIVE venue + ACTIVE court (step 30, min 60, max 180), open 06:00-22:00 every day, 100000/h all day. */
+    /** ACTIVE venue + ACTIVE court (step 60, min 60, max 120), open 06:00-22:00 every day, 100000/h all day. */
     protected BookableCourt bookableCourt() {
         RestClient client = client();
         Provider p = verifiedProvider();
@@ -141,8 +141,8 @@ public abstract class BookingApiTestSupport extends AdminApiTestSupport {
                 p.token()).getBody().get("id");
         jdbc.update("UPDATE sporthub.venues SET status = 'ACTIVE' WHERE id = ?::uuid", venueId);
         Map<?, ?> court = post(client, "/api/provider/venues/" + venueId + "/courts", Map.of("code", "C1",
-                "name", "Court 1", "capacity", 4, "bookingStepMinutes", 30, "minBookingMinutes", 60,
-                "maxBookingMinutes", 180), p.token()).getBody();
+                "name", "Court 1", "capacity", 4, "bookingStepMinutes", 60, "minBookingMinutes", 60,
+                "maxBookingMinutes", 120), p.token()).getBody();
         String courtId = (String) court.get("id");
         List<Map<String, Object>> hours = new ArrayList<>();
         List<Map<String, Object>> rules = new ArrayList<>();

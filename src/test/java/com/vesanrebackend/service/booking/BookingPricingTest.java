@@ -120,4 +120,27 @@ class BookingPricingTest {
         }
         assertThat(BookingPricing.depositPercent("{\"depositPercent\":50}", json)).isEqualTo(50);
     }
+
+    // Kiểm tra: cọc 0% cho quote hợp lệ với deposit 0 coin.
+    @Test
+    void zeroPercentGivesZeroDeposit() {
+        List<Slot> slots = List.of(
+                new Slot(LocalTime.of(8, 0), LocalTime.of(9, 0), true, new BigDecimal("100000")),
+                new Slot(LocalTime.of(9, 0), LocalTime.of(10, 0), true, new BigDecimal("100000")));
+        Quote q = BookingPricing.quote(slots, LocalTime.of(8, 0), LocalTime.of(10, 0), 0);
+        assertThat(q.depositCoins()).isZero();
+        assertThat(q.depositAmount().compareTo(BigDecimal.ZERO)).isZero();
+        assertThat(q.subtotal()).isEqualByComparingTo("200000");
+    }
+
+    // Kiểm tra: % dương nhưng làm tròn xuống 0 coin vẫn bị từ chối.
+    @Test
+    void positivePercentRoundingToZeroStillFails() {
+        List<Slot> slots = List.of(new Slot(LocalTime.of(8, 0), LocalTime.of(9, 0), true, new BigDecimal("1000")));
+        assertThatThrownBy(() -> BookingPricing.quote(slots, LocalTime.of(8, 0), LocalTime.of(9, 0), 1))
+                .isInstanceOfSatisfying(ResponseStatusException.class, e -> {
+                    assertThat(e.getStatusCode().value()).isEqualTo(400);
+                    assertThat(e.getReason()).isEqualTo("Deposit is too small");
+                });
+    }
 }
