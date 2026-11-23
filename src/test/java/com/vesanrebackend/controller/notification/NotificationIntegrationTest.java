@@ -35,9 +35,9 @@ class NotificationIntegrationTest extends BookingApiTestSupport {
     }
 
     // Books 18:00-19:00 tomorrow then cancels; returns the booking id.
-    private String bookAndCancel(BookableCourt bc, Customer c) {
+    private String bookAndCancel(BookableVenue bc, Customer c) {
         LocalDate tomorrow = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).plusDays(1);
-        ResponseEntity<Map> r = post(client(), "/api/bookings", Map.of("courtId", bc.courtId().toString(),
+        ResponseEntity<Map> r = post(client(), "/api/bookings", Map.of("venueId", bc.venueId().toString(),
                 "date", tomorrow.toString(), "startTime", "18:00", "endTime", "19:00"), c.token());
         assertThat(r.getStatusCode().value()).isEqualTo(201);
         String id = (String) r.getBody().get("id");
@@ -53,7 +53,7 @@ class NotificationIntegrationTest extends BookingApiTestSupport {
     // Kiểm tra (spec case 8): CONFIRMED + CANCELLED báo cho khách và chủ shop, mail một lần, xử lý lại không nhân đôi.
     @Test
     void confirmedAndCancelledNotifyCustomerAndOwner() throws Exception {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         Customer c = customer();
         seedCoins(c.userId(), 100);
         String id = bookAndCancel(bc, c);
@@ -83,7 +83,7 @@ class NotificationIntegrationTest extends BookingApiTestSupport {
     @Test
     @SuppressWarnings("unchecked")
     void notificationApi() {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         Customer c = customer();
         Customer other = customer();
         seedCoins(c.userId(), 100);

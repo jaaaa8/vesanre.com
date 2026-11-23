@@ -14,7 +14,6 @@ import com.vesanrebackend.entity.court.CourtScheduleBlock;
 import com.vesanrebackend.entity.enums.BookingStatus;
 import com.vesanrebackend.entity.enums.CancellationSource;
 import com.vesanrebackend.entity.enums.CoinEntryType;
-import com.vesanrebackend.entity.enums.CourtStatus;
 import com.vesanrebackend.entity.enums.ScheduleBlockKind;
 import com.vesanrebackend.entity.enums.VenueStatus;
 import com.vesanrebackend.entity.shop.Shop;
@@ -24,6 +23,7 @@ import com.vesanrebackend.repository.CourtRepository;
 import com.vesanrebackend.repository.CourtScheduleBlockRepository;
 import com.vesanrebackend.repository.ReviewRepository;
 import com.vesanrebackend.repository.UserAccountRepository;
+import com.vesanrebackend.repository.VenueRepository;
 import com.vesanrebackend.service.catalog.AvailabilityCalculator;
 import com.vesanrebackend.service.coin.CoinWalletService;
 import com.vesanrebackend.util.Paging;
@@ -39,6 +39,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.security.SecureRandom;
 import java.sql.SQLException;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -57,6 +58,7 @@ public class BookingService {
 
     private final BookingRepository bookings;
     private final CourtRepository courts;
+    private final VenueRepository venues;
     private final CourtScheduleBlockRepository blocks;
     private final UserAccountRepository users;
     private final CoinWalletService wallets;
@@ -65,11 +67,13 @@ public class BookingService {
     private final ObjectMapper json;
     private final Clock clock;
 
-    public BookingService(BookingRepository bookings, CourtRepository courts, CourtScheduleBlockRepository blocks,
+    public BookingService(BookingRepository bookings, CourtRepository courts, VenueRepository venues,
+                          CourtScheduleBlockRepository blocks,
                           UserAccountRepository users, CoinWalletService wallets, BookingLifecycle lifecycle,
                           ReviewRepository reviews, ObjectMapper json, Clock clock) {
         this.bookings = bookings;
         this.courts = courts;
+        this.venues = venues;
         this.blocks = blocks;
         this.users = users;
         this.wallets = wallets;
@@ -81,10 +85,8 @@ public class BookingService {
 
     @Transactional
     public BookingDetail create(UUID customerId, CreateBookingRequest req) {
-        Court court = courts.findById(req.courtId())
-                .filter(c -> c.getStatus() == CourtStatus.ACTIVE && c.getVenue().getStatus() == VenueStatus.ACTIVE)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Court not found"));
-        Venue venue = court.getVenue();
+        Venue venue = venues.findById(req.venueId()).filter(v -> v.getStatus() == VenueStatus.ACTIVE)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Venue not found"));
         Shop shop = venue.getShop();
         ZoneId zone = ZoneId.of(venue.getTimezone());
         LocalDate today = LocalDate.now(clock.withZone(zone));
@@ -96,23 +98,41 @@ public class BookingService {
         if (!end.isAfter(start)) { // also end = 00:00
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Requested time is not bookable");
         }
+        if (start.getMinute() != 0 || start.getSecond() != 0 || end.getMinute() != 0 || end.getSecond() != 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Requested time is not bookable");
+        }
         long minutes = (end.toSecondOfDay() - start.toSecondOfDay()) / 60L;
-        if (minutes < court.getMinBookingMinutes() || minutes > court.getMaxBookingMinutes()) {
+        if (minutes != 60 && minutes != 120) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Booking duration is out of range");
         }
+        // ponytail: khoá theo venue, các lượt đặt cùng venue chạy tuần tự; đủ cho quy mô demo.
+        // Lock order is fixed: courts first, wallet second.
+        List<Court> active = courts.lockActiveByVenue(venue.getId());
+        if (active.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Venue has no courts");
+        }
+        Court first = active.get(0);
         int weekday = req.date().getDayOfWeek().getValue() - 1;
-        CourtOperatingHour hours = court.getOperatingHours().stream()
+        CourtOperatingHour hours = first.getOperatingHours().stream()
                 .filter(h -> h.getId().getWeekday().intValue() == weekday).findFirst().orElse(null);
-        List<CourtPricingRule> rules = court.getPricingRules().stream()
+        List<CourtPricingRule> rules = first.getPricingRules().stream()
                 .filter(r -> r.getIsActive() && r.getWeekday().intValue() == weekday).toList();
-        // Busy blocks are not passed: the DB exclusion constraint is the single authority on overlaps.
+        // Courts are identical: price from the first one; busy blocks only matter per court below.
         var quote = BookingPricing.quote(AvailabilityCalculator.slots(req.date(), zone, hours,
-                        court.getBookingStepMinutes(), rules, List.of(), clock.instant()), start, end,
-                BookingPricing.depositPercent(shop.getDefaultCancellationPolicy(), json));
+                        first.getBookingStepMinutes(), rules, List.of(), clock.instant()), start, end,
+                venue.getDepositPercent());
+        Instant startAt = req.date().atTime(start).atZone(zone).toInstant();
+        Instant endAt = req.date().atTime(end).atZone(zone).toInstant();
+        Court court = active.stream().filter(c -> blocks.findActiveOverlapping(c.getId(), startAt, endAt).isEmpty())
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Slot is no longer available"));
 
-        CoinWallet wallet = wallets.lockUserWallet(customerId);
-        if (wallet.getBalance() < quote.depositCoins()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Insufficient coins");
+        CoinWallet wallet = null;
+        if (quote.depositCoins() > 0) {
+            wallet = wallets.lockUserWallet(customerId);
+            if (wallet.getBalance() < quote.depositCoins()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Insufficient coins");
+            }
         }
 
         var customer = users.getReferenceById(customerId);
@@ -120,8 +140,8 @@ public class BookingService {
         block.setCourt(court);
         block.setBlockKind(ScheduleBlockKind.BOOKING);
         block.setCreatedBy(customer);
-        block.setStartAt(req.date().atTime(start).atZone(zone).toInstant());
-        block.setEndAt(req.date().atTime(end).atZone(zone).toInstant());
+        block.setStartAt(startAt);
+        block.setEndAt(endAt);
         Booking booking = new Booking();
         booking.setBookingCode(newCode());
         booking.setCustomer(customer);
@@ -151,7 +171,9 @@ public class BookingService {
             }
             throw e;
         }
-        wallets.apply(wallet, CoinEntryType.BOOKING_DEPOSIT, -quote.depositCoins(), booking, null);
+        if (wallet != null) {
+            wallets.apply(wallet, CoinEntryType.BOOKING_DEPOSIT, -quote.depositCoins(), booking, null);
+        }
         lifecycle.recordCreated(booking, customerId);
         return detail(booking, json, false);
     }

@@ -102,7 +102,7 @@ public abstract class BookingApiTestSupport extends AdminApiTestSupport {
     protected record Customer(UUID userId, String email, String token) {
     }
 
-    protected record BookableCourt(Provider provider, UUID venueId, UUID courtId, UUID shopId) {
+    protected record BookableVenue(Provider provider, UUID venueId, UUID shopId) {
     }
 
     // static: JUnit makes a new instance per test method, and slots must not repeat on a court.
@@ -133,19 +133,17 @@ public abstract class BookingApiTestSupport extends AdminApiTestSupport {
         return new Customer(id, email, login(client, email));
     }
 
-    /** ACTIVE venue set up via PUT /setup with one court S1 (step 60, min 60, max 120), open 06:00-22:00 every day, 100000/h all day. */
-    protected BookableCourt bookableCourt() {
+    /** ACTIVE venue set up via PUT /setup with courtCount hidden courts (S1..Sn; step 60, min 60, max 120), open 06:00-22:00 every day, 100000/h all day. */
+    protected BookableVenue bookableVenue(int courtCount, int depositPercent) {
         RestClient client = client();
         Provider p = verifiedProvider();
         String venueId = (String) post(client, "/api/provider/venues", venueBody("Bookable " + UUID.randomUUID()),
                 p.token()).getBody().get("id");
         jdbc.update("UPDATE sporthub.venues SET status = 'ACTIVE' WHERE id = ?::uuid", venueId);
-        assertThat(put(client, "/api/provider/venues/" + venueId + "/setup", setupBody(1, 30), p.token())
+        assertThat(put(client, "/api/provider/venues/" + venueId + "/setup", setupBody(courtCount, depositPercent), p.token())
                 .getStatusCode().value()).isEqualTo(200);
-        String courtId = jdbc.queryForObject("SELECT id::text FROM sporthub.courts WHERE venue_id = ?::uuid AND code = 'S1'",
-                String.class, venueId);
         UUID shopId = jdbc.queryForObject("SELECT id FROM sporthub.shops WHERE owner_user_id = ?", UUID.class, p.userId());
-        return new BookableCourt(p, UUID.fromString(venueId), UUID.fromString(courtId), shopId);
+        return new BookableVenue(p, UUID.fromString(venueId), shopId);
     }
 
     /** Credits coins through the real service, backed by a PAID top-up row; returns the top-up id. */
@@ -174,26 +172,26 @@ public abstract class BookingApiTestSupport extends AdminApiTestSupport {
     }
 
     /** Seeds 100 coins and books 1h on the next unused slot (date +2.. days, 06:00-21:00 VN); returns the id. */
-    protected UUID confirmedBooking(Customer c, BookableCourt bc) {
+    protected UUID confirmedBooking(Customer c, BookableVenue bc) {
         seedCoins(c.userId(), 100);
         int n = NEXT_SLOT.getAndIncrement();
         LocalDate date = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).plusDays(2 + n / 16);
         int hour = 6 + n % 16;
-        var response = post(client(), "/api/bookings", Map.of("courtId", bc.courtId().toString(),
+        var response = post(client(), "/api/bookings", Map.of("venueId", bc.venueId().toString(),
                 "date", date.toString(), "startTime", String.format("%02d:00", hour),
                 "endTime", String.format("%02d:00", hour + 1)), c.token());
         assertThat(response.getStatusCode().value()).isEqualTo(201);
         return UUID.fromString((String) response.getBody().get("id"));
     }
 
-    protected UUID completedBooking(Customer c, BookableCourt bc) {
+    protected UUID completedBooking(Customer c, BookableVenue bc) {
         UUID id = confirmedBooking(c, bc);
         jdbc.update("UPDATE sporthub.bookings SET status = 'COMPLETED', completed_at = now() WHERE id = ?", id);
         return id;
     }
 
     /** Credits a shop wallet through a COMPLETED booking's BOOKING_PAYOUT (a CONFIRMED one would jam BookingCompletionJob). */
-    protected void seedShopCoins(BookableCourt bc, long coins) {
+    protected void seedShopCoins(BookableVenue bc, long coins) {
         UUID bookingId = completedBooking(customer(), bc);
         tx.executeWithoutResult(status -> coinWallets.apply(coinWallets.lockShopWallet(bc.shopId()),
                 CoinEntryType.BOOKING_PAYOUT, coins, em.getReference(Booking.class, bookingId), null));

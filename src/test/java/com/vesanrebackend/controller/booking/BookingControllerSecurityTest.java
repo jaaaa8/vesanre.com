@@ -32,7 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import({SecurityConfig.class, CorsConfig.class})
 class BookingControllerSecurityTest {
     // Valid body: validation runs before @PreAuthorize, so an empty body would give 400 instead of 403.
-    private static final String VALID_BODY = "{\"courtId\":\"" + UUID.randomUUID() + "\",\"date\":\"2030-01-01\",\"startTime\":\"18:00\",\"endTime\":\"19:00\"}";
+    private static final String VALID_BODY = "{\"venueId\":\"" + UUID.randomUUID() + "\",\"date\":\"2030-01-01\",\"startTime\":\"18:00\",\"endTime\":\"19:00\"}";
 
     @Autowired
     private MockMvc mvc;

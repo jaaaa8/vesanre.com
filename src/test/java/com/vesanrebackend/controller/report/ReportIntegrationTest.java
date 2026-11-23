@@ -39,7 +39,7 @@ class ReportIntegrationTest extends BookingApiTestSupport {
     // Kiểm tra (Review Focus 4, 5): 23:30 ngày cuối tháng VN thuộc tháng đó; CANCELLED không đếm; tháng trống = 0.
     @Test
     void monthlyCountsByVietnamMonth() {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         Customer c = customer();
         YearMonth now = YearMonth.now(VN);
         YearMonth prev = now.minusMonths(1);
@@ -62,7 +62,7 @@ class ReportIntegrationTest extends BookingApiTestSupport {
         assertThat(new BigDecimal(rows.get(2).get("changePercent").toString())).isEqualByComparingTo("0");
     }
 
-    private void bookInto(BookableCourt bc, Customer c, YearMonth m, int count) {
+    private void bookInto(BookableVenue bc, Customer c, YearMonth m, int count) {
         for (int i = 0; i < count; i++) {
             moveTo(confirmedBooking(c, bc), m.atDay(1 + i).atTime(10, 0));
         }
@@ -74,8 +74,8 @@ class ReportIntegrationTest extends BookingApiTestSupport {
         YearMonth now = YearMonth.now(VN);
         YearMonth prev = now.minusMonths(1);
         Customer c = customer();
-        BookableCourt a = bookableCourt();
-        BookableCourt b = bookableCourt();
+        BookableVenue a = bookableVenue(1, 30);
+        BookableVenue b = bookableVenue(1, 30);
         bookInto(a, c, prev, 2);
         bookInto(a, c, now, 3);
         bookInto(b, c, prev, 3);
@@ -91,7 +91,7 @@ class ReportIntegrationTest extends BookingApiTestSupport {
     // Kiểm tra (Review Focus 3): months ngoài 1–24 -> 400; mặc định 6 dòng.
     @Test
     void monthsOutOfRangeRejected() {
-        String t = bookableCourt().provider().token();
+        String t = bookableVenue(1, 30).provider().token();
         assertThat(get(client(), "/api/provider/reports/monthly-bookings?months=0", t).getStatusCode().value())
                 .isEqualTo(400);
         assertThat(get(client(), "/api/provider/reports/monthly-bookings?months=25", t).getStatusCode().value())
@@ -109,8 +109,8 @@ class ReportIntegrationTest extends BookingApiTestSupport {
     void topShopsDescending() {
         YearMonth m = randomPastMonth();
         Customer c = customer();
-        BookableCourt a = bookableCourt();
-        BookableCourt b = bookableCourt();
+        BookableVenue a = bookableVenue(1, 30);
+        BookableVenue b = bookableVenue(1, 30);
         bookInto(a, c, m, 2);
         bookInto(b, c, m, 1);
         UUID cancelled = confirmedBooking(c, b);
@@ -145,7 +145,7 @@ class ReportIntegrationTest extends BookingApiTestSupport {
                 vn.atZone(VN).toInstant().atOffset(ZoneOffset.UTC), topUpId);
     }
 
-    private String withdraw(BookableCourt bc, long coins) {
+    private String withdraw(BookableVenue bc, long coins) {
         var r = post(client(), "/api/provider/withdrawals", Map.of("coinAmount", coins, "bankName", "VCB",
                 "bankAccountNumber", "0123456789", "bankAccountName", "NGUYEN VAN A"), bc.provider().token());
         assertThat(r.getStatusCode().value()).isEqualTo(201);
@@ -162,7 +162,7 @@ class ReportIntegrationTest extends BookingApiTestSupport {
         setTopUpPaidAt(seedCoins(c.userId(), 300), m.atDay(10).atTime(12, 0));
         setTopUpPaidAt(seedCoins(c.userId(), 7), m.atEndOfMonth().atTime(23, 30));
         setTopUpPaidAt(seedCoins(c.userId(), 11), m.plusMonths(1).atDay(1).atTime(0, 30));
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         seedShopCoins(bc, 1100);
         String paid = withdraw(bc, 1000);
         assertThat(post(client(), "/api/admin/withdrawals/" + paid + "/mark-paid", Map.of("bankTransactionRef", "FT1"), t)
@@ -183,7 +183,7 @@ class ReportIntegrationTest extends BookingApiTestSupport {
     @Test
     void financeCurrentTotalsMove() {
         String t = admin().token();
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         Map f0 = finance(null, t);
         seedShopCoins(bc, 200);
         withdraw(bc, 100);
@@ -195,7 +195,7 @@ class ReportIntegrationTest extends BookingApiTestSupport {
 
     @Test
     void providerForbidden() {
-        assertThat(get(client(), "/api/admin/reports/finance", bookableCourt().provider().token())
+        assertThat(get(client(), "/api/admin/reports/finance", bookableVenue(1, 30).provider().token())
                 .getStatusCode().value()).isEqualTo(403);
     }
 
