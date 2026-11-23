@@ -171,7 +171,7 @@ public class VenueSetupService {
         Court court = new Court();
         court.setVenue(venue);
         court.setCode("S" + n);
-        court.setName("Court S" + n);
+        court.setName("Sân " + n);
         court.setCapacity(4);
         court.setBookingStepMinutes(60);
         court.setMinBookingMinutes(60);

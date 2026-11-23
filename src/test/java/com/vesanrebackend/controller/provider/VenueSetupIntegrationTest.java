@@ -56,6 +56,8 @@ class VenueSetupIntegrationTest extends AdminApiTestSupport {
                 + "JOIN sporthub.sports s ON s.id = cs.sport_id WHERE c.venue_id = ?::uuid AND s.code = 'BADMINTON' "
                 + "AND cs.is_primary", venueId)).isEqualTo(3);
         assertThat(count("SELECT deposit_percent FROM sporthub.venues WHERE id = ?::uuid", venueId)).isEqualTo(20);
+        assertThat(jdbc.queryForList("SELECT name FROM sporthub.courts WHERE venue_id = ?::uuid ORDER BY code", String.class, venueId))
+                .containsExactly("Sân 1", "Sân 2", "Sân 3");
 
         Map<String, Object> got = (Map<String, Object>) get(client, "/api/provider/venues/" + venueId + "/setup", p.token()).getBody();
         assertThat(got).containsEntry("sportCode", "BADMINTON").containsEntry("courtCount", 3)
