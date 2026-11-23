@@ -16,6 +16,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.HexFormat;
@@ -29,16 +30,18 @@ public class FakeTopUpGateway implements TopUpGateway {
     private final String secret;
     private final String baseUrl;
     private final ObjectMapper json;
+    private final Clock clock;
 
     public FakeTopUpGateway(@Value("${app.payment.fake.secret:}") String secret,
                             @Value("${app.payment.fake.base-url:http://localhost:8080}") String baseUrl,
-                            ObjectMapper json) {
+                            ObjectMapper json, Clock clock) {
         if (secret.isBlank() || secret.contains("replace-with")) {
             throw new IllegalStateException("app.payment.fake.secret must be set when the fake gateway is enabled");
         }
         this.secret = secret;
         this.baseUrl = baseUrl;
         this.json = json;
+        this.clock = clock;
     }
 
     @Override
@@ -73,7 +76,7 @@ public class FakeTopUpGateway implements TopUpGateway {
     /** A signed "paid" notification for the top-up, as the real gateway would send it. */
     public SignedEvent signedPaidEvent(CoinTopUp t) {
         byte[] body = payload(new GatewayPayment("evt_" + UUID.randomUUID(), "tx_" + UUID.randomUUID(),
-                t.getTransferCode(), t.getCoinAmount() * 1000, Instant.now()));
+                t.getTransferCode(), t.getCoinAmount() * 1000, clock.instant()));
         HttpHeaders headers = new HttpHeaders();
         headers.add("X-Signature", sign(body));
         return new SignedEvent(new String(body, StandardCharsets.UTF_8), headers);
