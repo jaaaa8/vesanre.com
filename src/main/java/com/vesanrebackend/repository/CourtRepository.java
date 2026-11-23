@@ -2,7 +2,9 @@ package com.vesanrebackend.repository;
 
 import com.vesanrebackend.entity.court.Court;
 import com.vesanrebackend.entity.enums.CourtStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -17,6 +19,12 @@ public interface CourtRepository extends JpaRepository<Court, UUID> {
     // Ownership chain court -> venue -> shop -> owner: another provider's court is simply not found.
     @Query("select c from Court c where c.id = :id and c.venue.shop.owner.userId = :ownerUserId")
     Optional<Court> findOwned(@Param("id") UUID id, @Param("ownerUserId") UUID ownerUserId);
+
+    // Booking locks courts in the same order, so a shrink cannot race a new booking onto a court being switched off.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from Court c where c.venue.id = :venueId and c.status = com.vesanrebackend.entity.enums.CourtStatus.ACTIVE "
+            + "order by length(c.code), c.code")
+    List<Court> lockActiveByVenue(@Param("venueId") UUID venueId);
 
     boolean existsByVenueIdAndStatus(UUID venueId, CourtStatus status);
 

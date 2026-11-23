@@ -6,10 +6,10 @@ import com.vesanrebackend.repository.SportRepository;
 import com.vesanrebackend.security.CorsConfig;
 import com.vesanrebackend.security.SecurityConfig;
 import com.vesanrebackend.service.provider.ProviderChangeRequestService;
-import com.vesanrebackend.service.provider.ProviderCourtService;
 import com.vesanrebackend.service.provider.ProviderImageService;
 import com.vesanrebackend.service.provider.ProviderShopService;
 import com.vesanrebackend.service.provider.ProviderVenueService;
+import com.vesanrebackend.service.provider.VenueSetupService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -34,7 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Loại test: @WebMvcTest + MockMvc (các service/repository provider và catalog được mock) - kiểm tra phân quyền và validation.
  * API: /api/provider/** (shop, venues, courts, images, logo, change-requests) và /api/catalog/sports|amenities.
  */
-@WebMvcTest(value = {ProviderShopController.class, ProviderVenueController.class, ProviderCourtController.class,
+@WebMvcTest(value = {ProviderShopController.class, ProviderVenueController.class, 
         ProviderImageController.class, CatalogController.class}, properties = {
         "app.security.jwt.secret=test-secret-at-least-thirty-two-bytes-long",
         "app.cors.allowed-origin=http://localhost:5173"})
@@ -42,7 +42,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ProviderCatalogControllerSecurityTest {
     private static final String ID = UUID.randomUUID().toString();
     private static final String[] GETS = {"/api/provider/shop", "/api/provider/venues",
-            "/api/provider/venues/" + ID, "/api/provider/courts/" + ID};
+            "/api/provider/venues/" + ID, "/api/provider/venues/" + ID + "/setup"};
 
     @Autowired
     private MockMvc mvc;
@@ -54,7 +54,7 @@ class ProviderCatalogControllerSecurityTest {
     @MockitoBean
     private ProviderVenueService venues;
     @MockitoBean
-    private ProviderCourtService courts;
+    private VenueSetupService setup;
     @MockitoBean
     private ProviderImageService images;
     @MockitoBean
@@ -62,17 +62,16 @@ class ProviderCatalogControllerSecurityTest {
     @MockitoBean
     private AmenityRepository amenities;
 
-    // API: GET /api/provider/shop|venues|venues/{id}|courts/{id}, POST .../change-requests/{id}/cancel, PUT .../courts/{id}/sports, POST .../venues/{id}/images, DELETE .../courts/{id}/images/{imageId}, DELETE .../shop/logo
+    // API: GET /api/provider/shop|venues|venues/{id}|courts/{id}, POST .../change-requests/{id}/cancel, PUT .../venues/{id}/setup, POST .../venues/{id}/images, DELETE .../shop/logo
     // Kiểm tra: Không có token thì tất cả trả 401.
     @Test
     void unauthenticatedIsUnauthorized() throws Exception {
         for (String path : GETS) mvc.perform(get(path)).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/provider/change-requests/" + ID + "/cancel")).andExpect(status().isUnauthorized());
-        mvc.perform(put("/api/provider/courts/" + ID + "/sports").contentType(MediaType.APPLICATION_JSON).content("[]"))
+        mvc.perform(put("/api/provider/venues/" + ID + "/setup").contentType(MediaType.APPLICATION_JSON).content("{\"sportCode\":\"BADMINTON\",\"courtCount\":1,\"depositPercent\":0,\"operatingHours\":[],\"pricingRules\":[]}"))
                 .andExpect(status().isUnauthorized());
         mvc.perform(multipart("/api/provider/venues/" + ID + "/images").file(new MockMultipartFile("file", new byte[]{1})))
                 .andExpect(status().isUnauthorized());
-        mvc.perform(delete("/api/provider/courts/" + ID + "/images/" + ID)).andExpect(status().isUnauthorized());
         mvc.perform(delete("/api/provider/shop/logo")).andExpect(status().isUnauthorized());
     }
 
@@ -84,39 +83,40 @@ class ProviderCatalogControllerSecurityTest {
             RequestPostProcessor caller = as(role);
             for (String path : GETS) mvc.perform(get(path).with(caller)).andExpect(status().isForbidden());
             mvc.perform(post("/api/provider/change-requests/" + ID + "/cancel").with(caller)).andExpect(status().isForbidden());
-            mvc.perform(put("/api/provider/courts/" + ID + "/sports").with(caller)
-                    .contentType(MediaType.APPLICATION_JSON).content("[]")).andExpect(status().isForbidden());
+            mvc.perform(put("/api/provider/venues/" + ID + "/setup").with(caller)
+                    .contentType(MediaType.APPLICATION_JSON).content("{\"sportCode\":\"BADMINTON\",\"courtCount\":1,\"depositPercent\":0,\"operatingHours\":[],\"pricingRules\":[]}")).andExpect(status().isForbidden());
             mvc.perform(multipart("/api/provider/venues/" + ID + "/images").file(new MockMultipartFile("file", new byte[]{1}))
                     .with(caller)).andExpect(status().isForbidden());
-            mvc.perform(delete("/api/provider/courts/" + ID + "/images/" + ID).with(caller)).andExpect(status().isForbidden());
             mvc.perform(delete("/api/provider/shop/logo").with(caller)).andExpect(status().isForbidden());
         }
     }
 
-    // API: GET shop/venues/venue/court, POST .../change-requests/{id}/cancel, PUT .../courts/{id}/sports
+    // API: GET shop/venues/venue/setup, POST .../change-requests/{id}/cancel, PUT .../venues/{id}/setup
     // Kiểm tra: PROVIDER được phép: GET/PUT trả 200, cancel trả 204 (service mock).
     @Test
     void providerIsAllowed() throws Exception {
         RequestPostProcessor provider = as("PROVIDER");
         for (String path : GETS) mvc.perform(get(path).with(provider)).andExpect(status().isOk());
         mvc.perform(post("/api/provider/change-requests/" + ID + "/cancel").with(provider)).andExpect(status().isNoContent());
-        mvc.perform(put("/api/provider/courts/" + ID + "/sports").with(provider)
-                .contentType(MediaType.APPLICATION_JSON).content("[]")).andExpect(status().isOk());
+        mvc.perform(put("/api/provider/venues/" + ID + "/setup").with(provider)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"sportCode\":\"BADMINTON\",\"courtCount\":1,\"depositPercent\":0,\"operatingHours\":[],\"pricingRules\":[]}")).andExpect(status().isOk());
     }
 
-    // API: PUT /api/provider/courts/{id}/sports, PUT .../operating-hours
-    // Kiểm tra: sportId null, phần tử null và weekday=9 bị validation chặn, trả 400.
+    // API: PUT /api/provider/venues/{id}/setup
+    // Kiểm tra: courtCount=0, depositPercent=101, giờ mở weekday=9 bị validation chặn, trả 400.
     @Test
-    void invalidListElementIsBadRequest() throws Exception {
+    void invalidSetupIsBadRequest() throws Exception {
         RequestPostProcessor provider = as("PROVIDER");
-        mvc.perform(put("/api/provider/courts/" + ID + "/sports").with(provider)
-                .contentType(MediaType.APPLICATION_JSON).content("[{\"sportId\":null,\"primary\":true}]"))
+        String path = "/api/provider/venues/" + ID + "/setup";
+        mvc.perform(put(path).with(provider).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"sportCode\":\"BADMINTON\",\"courtCount\":0,\"depositPercent\":0,\"operatingHours\":[],\"pricingRules\":[]}"))
                 .andExpect(status().isBadRequest());
-        mvc.perform(put("/api/provider/courts/" + ID + "/sports").with(provider)
-                .contentType(MediaType.APPLICATION_JSON).content("[null]")).andExpect(status().isBadRequest());
-        mvc.perform(put("/api/provider/courts/" + ID + "/operating-hours").with(provider)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("[{\"weekday\":9,\"opensAt\":\"08:00\",\"closesAt\":\"22:00\"}]"))
+        mvc.perform(put(path).with(provider).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"sportCode\":\"BADMINTON\",\"courtCount\":1,\"depositPercent\":101,\"operatingHours\":[],\"pricingRules\":[]}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(put(path).with(provider).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"sportCode\":\"BADMINTON\",\"courtCount\":1,\"depositPercent\":0,\"pricingRules\":[],"
+                        + "\"operatingHours\":[{\"weekday\":9,\"opensAt\":\"08:00\",\"closesAt\":\"22:00\"}]}"))
                 .andExpect(status().isBadRequest());
     }
 

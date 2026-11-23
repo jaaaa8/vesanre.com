@@ -49,7 +49,7 @@ class AdminReviewIntegrationTest extends AdminApiTestSupport {
                 .anySatisfy(v -> assertThat(v).containsEntry("id", venueId.toString()).containsEntry("status", "PENDING_REVIEW"));
         Map detail = get(client, base, admin.token()).getBody();
         assertThat((Map<String, Object>) detail.get("venue")).containsEntry("name", "San Review");
-        assertThat((List<?>) detail.get("courts")).hasSize(1);
+        assertThat((Map<String, Object>) detail.get("setup")).containsEntry("courtCount", 1);
 
         // reject (mail has reason) -> provider resubmits -> approve -> suspend -> reactivate
         assertThat(post(client, base + "/reject", Map.of("reason", "Thiếu ảnh"), admin.token()).getBody())

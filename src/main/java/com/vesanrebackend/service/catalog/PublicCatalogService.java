@@ -116,7 +116,7 @@ public class PublicCatalogService {
                         .map(a -> new CourtDetailResponse.AmenityItem(a.getAmenity().getId(), a.getAmenity().getCode(),
                                 a.getAmenity().getName(), a.getDetails()))
                         .sorted(Comparator.comparing(CourtDetailResponse.AmenityItem::code)).toList(),
-                images.ofCourt(c.getId()),
+                List.of(), // ponytail: courts are hidden; the gallery is venue-level (images at the top level)
                 c.getOperatingHours().stream()
                         .map(h -> new CourtDetailResponse.OperatingHourItem(h.getId().getWeekday(), h.getOpensAt(),
                                 h.getClosesAt(), h.getIsClosed()))

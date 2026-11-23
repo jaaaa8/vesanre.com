@@ -133,27 +133,17 @@ public abstract class BookingApiTestSupport extends AdminApiTestSupport {
         return new Customer(id, email, login(client, email));
     }
 
-    /** ACTIVE venue + ACTIVE court (step 60, min 60, max 120), open 06:00-22:00 every day, 100000/h all day. */
+    /** ACTIVE venue set up via PUT /setup with one court S1 (step 60, min 60, max 120), open 06:00-22:00 every day, 100000/h all day. */
     protected BookableCourt bookableCourt() {
         RestClient client = client();
         Provider p = verifiedProvider();
         String venueId = (String) post(client, "/api/provider/venues", venueBody("Bookable " + UUID.randomUUID()),
                 p.token()).getBody().get("id");
         jdbc.update("UPDATE sporthub.venues SET status = 'ACTIVE' WHERE id = ?::uuid", venueId);
-        Map<?, ?> court = post(client, "/api/provider/venues/" + venueId + "/courts", Map.of("code", "C1",
-                "name", "Court 1", "capacity", 4, "bookingStepMinutes", 60, "minBookingMinutes", 60,
-                "maxBookingMinutes", 120), p.token()).getBody();
-        String courtId = (String) court.get("id");
-        List<Map<String, Object>> hours = new ArrayList<>();
-        List<Map<String, Object>> rules = new ArrayList<>();
-        for (int weekday = 0; weekday < 7; weekday++) {
-            hours.add(Map.of("weekday", weekday, "closed", false, "opensAt", "06:00", "closesAt", "22:00"));
-            rules.add(Map.of("weekday", weekday, "startMinute", 0, "endMinute", 1440, "pricePerHour", 100000));
-        }
-        assertThat(put(client, "/api/provider/courts/" + courtId + "/operating-hours", hours, p.token())
+        assertThat(put(client, "/api/provider/venues/" + venueId + "/setup", setupBody(1, 30), p.token())
                 .getStatusCode().value()).isEqualTo(200);
-        assertThat(put(client, "/api/provider/courts/" + courtId + "/pricing-rules", rules, p.token())
-                .getStatusCode().value()).isEqualTo(200);
+        String courtId = jdbc.queryForObject("SELECT id::text FROM sporthub.courts WHERE venue_id = ?::uuid AND code = 'S1'",
+                String.class, venueId);
         UUID shopId = jdbc.queryForObject("SELECT id FROM sporthub.shops WHERE owner_user_id = ?", UUID.class, p.userId());
         return new BookableCourt(p, UUID.fromString(venueId), UUID.fromString(courtId), shopId);
     }
