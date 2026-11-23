@@ -141,7 +141,7 @@ class ProviderCatalogIntegrationTest extends AdminApiTestSupport {
         ResponseEntity<Map> submitted = post(client, "/api/provider/venues/" + id + "/submit", Map.of(), token);
         assertThat(submitted.getStatusCode().value()).isEqualTo(200);
         assertThat(submitted.getBody()).containsEntry("status", "PENDING_REVIEW");
-        assertThat((List) submitted.getBody().get("courts")).hasSize(1);
+        assertThat(submitted.getBody()).doesNotContainKey("courts");
         assertThat(post(client, "/api/provider/venues/" + id + "/submit", Map.of(), token).getStatusCode().value()).isEqualTo(409);
         assertThat(delete(client, "/api/provider/venues/" + id, token).getStatusCode().value()).isEqualTo(409);
 

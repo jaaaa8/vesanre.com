@@ -316,6 +316,10 @@ class BookingIntegrationTest extends BookingApiTestSupport {
         assertThat(items.get(1).get("id")).isEqualTo(first);
         assertThat(get(client, "/api/provider/bookings?date=" + tomorrow(), bc.provider().token())
                 .getStatusCode().value()).isEqualTo(400);
+        ResponseEntity<Map> ignored = get(client, "/api/provider/bookings?venueId=" + bc.venueId() + "&courtId="
+                + UUID.randomUUID(), bc.provider().token());
+        assertThat(ignored.getStatusCode().value()).isEqualTo(200);
+        assertThat((List<?>) ignored.getBody().get("items")).hasSize(2);
         Map<String, Object> detail = get(client, "/api/provider/bookings/" + id, bc.provider().token()).getBody();
         assertThat(((Map<String, Object>) detail.get("customer")).get("displayName")).isEqualTo("IT Customer");
         ResponseEntity<Map> wallet = get(client, "/api/provider/wallet", bc.provider().token());
