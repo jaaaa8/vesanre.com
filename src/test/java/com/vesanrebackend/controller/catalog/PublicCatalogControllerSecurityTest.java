@@ -51,11 +51,11 @@ class PublicCatalogControllerSecurityTest {
         mvc.perform(get("/api/catalog/venues/" + UUID.randomUUID())).andExpect(status().isOk());
     }
 
-    // API: GET /api/catalog/courts/{id}/availability?date=
+    // API: GET /api/catalog/venues/{id}/availability?date=
     // Kiểm tra: không token vẫn trả 200.
     @Test
     void anonymousCanReadAvailability() throws Exception {
-        mvc.perform(get("/api/catalog/courts/" + UUID.randomUUID() + "/availability").param("date", "2026-12-07"))
+        mvc.perform(get("/api/catalog/venues/" + UUID.randomUUID() + "/availability").param("date", "2026-12-07"))
                 .andExpect(status().isOk());
     }
 }
