@@ -65,7 +65,7 @@ class BookingIntegrationTest extends BookingApiTestSupport {
         assertThat(b.get("status")).isEqualTo("CONFIRMED");
         assertThat(((Number) b.get("depositCoins")).longValue()).isEqualTo(30);
         assertThat(((Number) b.get("depositPercent")).intValue()).isEqualTo(30);
-        assertThat((List<?>) b.get("priceBreakdown")).hasSize(2);
+        assertThat((List<?>) b.get("priceBreakdown")).hasSize(1);
         assertThat(b.get("customer")).isNull();
         String id = (String) b.get("id");
         assertThat(balance(c.userId())).isEqualTo(70).isEqualTo(ledgerSum(c.userId()) );
@@ -82,8 +82,7 @@ class BookingIntegrationTest extends BookingApiTestSupport {
         Map<String, Object> av = get(client(), "/api/catalog/courts/" + bc.courtId() + "/availability?date="
                 + tomorrow(), null).getBody();
         List<Map<String, Object>> slots = (List<Map<String, Object>>) av.get("slots");
-        assertThat(slots).filteredOn(s -> s.get("start").toString().startsWith("18:00")
-                || s.get("start").toString().startsWith("18:30")).hasSize(2)
+        assertThat(slots).filteredOn(s -> s.get("start").toString().startsWith("18:00")).hasSize(1)
                 .allMatch(s -> Boolean.FALSE.equals(s.get("available")));
     }
 
@@ -123,7 +122,7 @@ class BookingIntegrationTest extends BookingApiTestSupport {
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
             for (Object[] c : new Object[][]{{same, "18:00", "19:00", "18:00", "19:00"},
-                    {overlap, "18:00", "19:00", "18:30", "19:30"}}) {
+                    {overlap, "18:00", "20:00", "19:00", "21:00"}}) {
                 BookableCourt court = (BookableCourt) c[0];
                 CountDownLatch go = new CountDownLatch(1);
                 Future<ResponseEntity<Map>> fa = pool.submit(() -> {
@@ -154,7 +153,7 @@ class BookingIntegrationTest extends BookingApiTestSupport {
         }
         assertThat(balance(a.userId())).isEqualTo(ledgerSum(a.userId()));
         assertThat(balance(b.userId())).isEqualTo(ledgerSum(b.userId()));
-        assertThat(balance(a.userId()) + balance(b.userId())).isEqualTo(200 - 60);
+        assertThat(balance(a.userId()) + balance(b.userId())).isEqualTo(200 - 30 - 60);
     }
 
     // Kiểm tra: ledger entries hiện đúng bookingCode (lazy booking không vỡ).

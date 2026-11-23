@@ -50,7 +50,7 @@ public final class BookingPricing {
         BigDecimal subtotal = chosen.stream().map(Slot::price).reduce(BigDecimal.ZERO, BigDecimal::add);
         long coins = subtotal.multiply(BigDecimal.valueOf(depositPercent))
                 .divide(BigDecimal.valueOf(100).multiply(VND_PER_COIN), 0, RoundingMode.FLOOR).longValueExact();
-        if (coins == 0) {
+        if (depositPercent > 0 && coins == 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Deposit is too small");
         }
         long minutes = (end.toSecondOfDay() - start.toSecondOfDay()) / 60L;

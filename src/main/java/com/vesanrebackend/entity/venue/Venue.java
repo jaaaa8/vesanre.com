@@ -109,6 +109,10 @@ public class Venue {
     // Trạng thái hiện tại.
     private VenueStatus status = VenueStatus.DRAFT;
 
+    @Column(name = "deposit_percent", nullable = false)
+    // Phần trăm cọc khi đặt sân (0-100).
+    private Short depositPercent = 0;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false, columnDefinition = "timestamp with time zone")
     // Thời điểm tạo bản ghi.

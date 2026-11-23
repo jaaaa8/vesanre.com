@@ -73,7 +73,7 @@ public abstract class AdminApiTestSupport {
         RestClient client = client();
         String venueId = (String) post(client, "/api/provider/venues", venueBody(name), token).getBody().get("id");
         assertThat(post(client, "/api/provider/venues/" + venueId + "/courts", Map.of("code", "C1", "name", "Court 1",
-                "capacity", 4, "bookingStepMinutes", 30, "minBookingMinutes", 60, "maxBookingMinutes", 120), token)
+                "capacity", 4, "bookingStepMinutes", 60, "minBookingMinutes", 60, "maxBookingMinutes", 120), token)
                 .getStatusCode().value()).isEqualTo(201);
         assertThat(post(client, "/api/provider/venues/" + venueId + "/submit", Map.of(), token).getStatusCode().value())
                 .isEqualTo(200);

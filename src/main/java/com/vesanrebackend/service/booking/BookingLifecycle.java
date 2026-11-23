@@ -73,8 +73,10 @@ public class BookingLifecycle {
         b.setCancellationSource(source);
         b.setCancelledBy(users.getReferenceById(actorUserId));
         b.setCancellationReason(reason);
-        CoinWallet wallet = wallets.lockUserWallet(b.getCustomer().getId());
-        wallets.apply(wallet, CoinEntryType.BOOKING_DEPOSIT_RETURN, b.getDepositCoins(), b, null);
+        if (b.getDepositCoins() > 0) {
+            CoinWallet wallet = wallets.lockUserWallet(b.getCustomer().getId());
+            wallets.apply(wallet, CoinEntryType.BOOKING_DEPOSIT_RETURN, b.getDepositCoins(), b, null);
+        }
         block.setState(ScheduleBlockState.RELEASED);
         block.setReleasedAt(now);
         boolean byCustomer = source == CancellationSource.CUSTOMER;
@@ -99,8 +101,10 @@ public class BookingLifecycle {
         }
         b.setStatus(BookingStatus.COMPLETED);
         b.setCompletedAt(now);
-        CoinWallet shopWallet = wallets.lockShopWallet(block.getCourt().getVenue().getShop().getId());
-        wallets.apply(shopWallet, CoinEntryType.BOOKING_PAYOUT, b.getDepositCoins(), b, null);
+        if (b.getDepositCoins() > 0) {
+            CoinWallet shopWallet = wallets.lockShopWallet(block.getCourt().getVenue().getShop().getId());
+            wallets.apply(shopWallet, CoinEntryType.BOOKING_PAYOUT, b.getDepositCoins(), b, null);
+        }
         record(b, BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingActorType.SYSTEM, null, "COMPLETED",
                 b.getDepositCoins());
     }
