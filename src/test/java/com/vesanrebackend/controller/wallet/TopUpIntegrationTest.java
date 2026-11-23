@@ -425,4 +425,34 @@ class TopUpIntegrationTest extends BookingApiTestSupport {
         assertThat(confirm(code).getStatusCode().value()).isEqualTo(303);
         assertThat(balance(c.userId())).isEqualTo(100);
     }
+
+    // Kiểm tra: simulate-paid -> PAID, +50, gọi lại không cộng thêm (1 ledger TOP_UP); khách khác -> 404.
+    @Test
+    void simulatePaidIsIdempotentAndOwnerOnly() {
+        Customer c = customer();
+        Map<String, Object> top = createTopUp(c, 50).getBody();
+        String url = "/api/wallet/top-ups/" + top.get("id") + "/simulate-paid";
+        assertThat(post(client(), url, Map.of(), customer().token()).getStatusCode().value()).isEqualTo(404);
+        ResponseEntity<Map> r = post(client(), url, Map.of(), c.token());
+        assertThat(r.getStatusCode().value()).isEqualTo(200);
+        assertThat(r.getBody().get("status")).isEqualTo("PAID");
+        assertThat(balance(c.userId())).isEqualTo(50);
+        assertThat(post(client(), url, Map.of(), c.token()).getBody().get("status")).isEqualTo("PAID");
+        assertThat(balance(c.userId())).isEqualTo(50).isEqualTo(ledgerSum(c.userId()));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM sporthub.coin_ledger_entries WHERE top_up_id = ?::uuid "
+                + "AND entry_type = 'TOP_UP'", Long.class, top.get("id"))).isEqualTo(1);
+    }
+
+    // Kiểm tra: quá expiresAt mà chưa PAID -> 409, số dư không đổi.
+    @Test
+    void simulatePaidRejectsExpired() {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        testClock.set(now);
+        Customer c = customer();
+        Map<String, Object> top = createTopUp(c, 50).getBody();
+        testClock.set(now.plus(16, ChronoUnit.MINUTES));
+        assertThat(post(client(), "/api/wallet/top-ups/" + top.get("id") + "/simulate-paid", Map.of(), c.token())
+                .getStatusCode().value()).isEqualTo(409);
+        assertThat(balance(c.userId())).isZero();
+    }
 }
