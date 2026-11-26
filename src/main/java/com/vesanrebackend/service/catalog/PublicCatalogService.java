@@ -2,8 +2,9 @@ package com.vesanrebackend.service.catalog;
 
 import com.vesanrebackend.dto.catalog.CourtAvailabilityResponse;
 import com.vesanrebackend.dto.catalog.PublicVenueDetailResponse;
+import com.vesanrebackend.dto.catalog.VenueAvailabilityResponse;
 import com.vesanrebackend.dto.review.RatingSummary;
-import com.vesanrebackend.dto.provider.CourtDetailResponse;
+import com.vesanrebackend.dto.provider.PricingRuleRequest;
 import com.vesanrebackend.dto.provider.VenueDetailResponse;
 import com.vesanrebackend.entity.court.Court;
 import com.vesanrebackend.entity.court.CourtOperatingHour;
@@ -29,6 +30,7 @@ import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
@@ -36,6 +38,10 @@ import java.util.UUID;
 /** Public (anonymous) read model: only ACTIVE venues, ACTIVE courts and active pricing rules. */
 @Service
 public class PublicCatalogService {
+    // S1, S2, ..., S10: by code length then code, same as CourtRepository.lockActiveByVenue.
+    private static final Comparator<Court> COURT_ORDER = Comparator.comparingInt((Court c) -> c.getCode().length())
+            .thenComparing(Court::getCode);
+
     private final VenueRepository venues;
     private final CourtRepository courts;
     private final VenueAmenityRepository venueAmenities;
@@ -62,11 +68,18 @@ public class PublicCatalogService {
     public PublicVenueDetailResponse detail(UUID venueId) {
         Venue v = venues.findById(venueId).filter(x -> x.getStatus() == VenueStatus.ACTIVE)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Venue not found"));
-        // ponytail: N+1 per court collection; batch fetch if a venue gets many courts.
-        List<PublicVenueDetailResponse.CourtItem> courtItems = courts.findByVenueIdOrderByCode(venueId).stream()
-                .filter(c -> c.getStatus() == CourtStatus.ACTIVE).map(this::toItem).toList();
-        BigDecimal fromPrice = courtItems.stream().flatMap(c -> c.pricingRules().stream())
-                .map(CourtDetailResponse.PricingRuleItem::pricePerHour).min(Comparator.naturalOrder()).orElse(null);
+        List<Court> active = activeCourts(venueId);
+        // Courts are identical, so the first one speaks for the venue.
+        List<PricingRuleRequest> rules = active.isEmpty() ? List.of() : active.get(0).getPricingRules().stream()
+                .filter(r -> r.getIsActive())
+                .map(r -> new PricingRuleRequest(r.getWeekday().intValue(), r.getStartMinute(), r.getEndMinute(),
+                        r.getPricePerHour()))
+                .sorted(Comparator.comparingInt(PricingRuleRequest::weekday)
+                        .thenComparingInt(PricingRuleRequest::startMinute)).toList();
+        String sport = active.isEmpty() ? null : active.get(0).getSports().stream()
+                .map(s -> s.getSport().getName()).findFirst().orElse(null);
+        BigDecimal fromPrice = rules.stream().map(PricingRuleRequest::pricePerHour).min(Comparator.naturalOrder())
+                .orElse(null);
         RatingSummary rating = reviews.ratingOf(venueId);
         BigDecimal ratingAverage = rating.count() == 0 ? null
                 : BigDecimal.valueOf(rating.average()).setScale(1, RoundingMode.HALF_UP);
@@ -78,53 +91,45 @@ public class PublicCatalogService {
                 venueAmenities.findByVenueId(venueId).stream()
                         .map(a -> new VenueDetailResponse.AmenityItem(a.getAmenity().getId(), a.getAmenity().getCode(),
                                 a.getAmenity().getName(), a.getDetails())).toList(),
-                courtItems, fromPrice, ratingAverage, rating.count());
+                sport, active.size(), v.getDepositPercent(), rules, fromPrice, ratingAverage, rating.count());
     }
 
     @Transactional(readOnly = true)
-    public CourtAvailabilityResponse availability(UUID courtId, LocalDate date) {
-        Court court = courts.findById(courtId)
-                .filter(c -> c.getStatus() == CourtStatus.ACTIVE && c.getVenue().getStatus() == VenueStatus.ACTIVE)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Court not found"));
-        ZoneId zone = ZoneId.of(court.getVenue().getTimezone());
+    public VenueAvailabilityResponse venueAvailability(UUID venueId, LocalDate date) {
+        Venue venue = venues.findById(venueId).filter(x -> x.getStatus() == VenueStatus.ACTIVE)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Venue not found"));
+        List<Court> active = activeCourts(venueId);
+        if (active.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Venue has no courts");
+        }
+        ZoneId zone = ZoneId.of(venue.getTimezone());
         LocalDate today = LocalDate.now(clock.withZone(zone));
         if (date.isBefore(today) || date.isAfter(today.plusDays(30))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "date must be within the next 30 days");
         }
         int weekday = date.getDayOfWeek().getValue() - 1;
-        CourtOperatingHour hours = court.getOperatingHours().stream()
-                .filter(h -> h.getId().getWeekday().intValue() == weekday).findFirst().orElse(null);
-        List<CourtPricingRule> rules = court.getPricingRules().stream()
-                .filter(r -> r.getIsActive() && r.getWeekday().intValue() == weekday).toList();
-        // Query the whole local day so a block starting the previous evening still counts.
-        List<CourtScheduleBlock> active = blocks.findActiveOverlapping(courtId,
-                date.atStartOfDay(zone).toInstant(), date.plusDays(1).atStartOfDay(zone).toInstant());
-        return new CourtAvailabilityResponse(courtId, date, zone.getId(), hours == null || hours.getIsClosed(),
-                court.getBookingStepMinutes(), court.getMinBookingMinutes(), court.getMaxBookingMinutes(),
-                AvailabilityCalculator.slots(date, zone, hours, court.getBookingStepMinutes(), rules, active,
-                        clock.instant()));
+        List<List<CourtAvailabilityResponse.Slot>> perCourt = new ArrayList<>();
+        boolean closed = false;
+        for (Court court : active) {
+            CourtOperatingHour hours = court.getOperatingHours().stream()
+                    .filter(h -> h.getId().getWeekday().intValue() == weekday).findFirst().orElse(null);
+            if (perCourt.isEmpty()) {
+                closed = hours == null || hours.getIsClosed();
+            }
+            List<CourtPricingRule> rules = court.getPricingRules().stream()
+                    .filter(r -> r.getIsActive() && r.getWeekday().intValue() == weekday).toList();
+            // Query the whole local day so a block starting the previous evening still counts.
+            List<CourtScheduleBlock> busy = blocks.findActiveOverlapping(court.getId(),
+                    date.atStartOfDay(zone).toInstant(), date.plusDays(1).atStartOfDay(zone).toInstant());
+            perCourt.add(AvailabilityCalculator.slots(date, zone, hours, court.getBookingStepMinutes(), rules, busy,
+                    clock.instant()));
+        }
+        return new VenueAvailabilityResponse(venueId, date, closed, active.size(), venue.getDepositPercent(),
+                VenueSlots.merge(perCourt));
     }
 
-    private PublicVenueDetailResponse.CourtItem toItem(Court c) {
-        return new PublicVenueDetailResponse.CourtItem(c.getId(), c.getCode(), c.getName(), c.getDescription(),
-                c.getCapacity(), c.getBookingStepMinutes(), c.getMinBookingMinutes(), c.getMaxBookingMinutes(),
-                c.getSports().stream()
-                        .map(s -> new CourtDetailResponse.SportItem(s.getSport().getId(), s.getSport().getCode(),
-                                s.getSport().getName(), s.getIsPrimary()))
-                        .sorted(Comparator.comparing(CourtDetailResponse.SportItem::code)).toList(),
-                c.getAmenities().stream()
-                        .map(a -> new CourtDetailResponse.AmenityItem(a.getAmenity().getId(), a.getAmenity().getCode(),
-                                a.getAmenity().getName(), a.getDetails()))
-                        .sorted(Comparator.comparing(CourtDetailResponse.AmenityItem::code)).toList(),
-                images.ofCourt(c.getId()),
-                c.getOperatingHours().stream()
-                        .map(h -> new CourtDetailResponse.OperatingHourItem(h.getId().getWeekday(), h.getOpensAt(),
-                                h.getClosesAt(), h.getIsClosed()))
-                        .sorted(Comparator.comparingInt(CourtDetailResponse.OperatingHourItem::weekday)).toList(),
-                c.getPricingRules().stream().filter(r -> r.getIsActive())
-                        .map(r -> new CourtDetailResponse.PricingRuleItem(r.getId(), r.getWeekday(), r.getStartMinute(),
-                                r.getEndMinute(), r.getPricePerHour(), r.getCurrency()))
-                        .sorted(Comparator.comparingInt(CourtDetailResponse.PricingRuleItem::weekday)
-                                .thenComparingInt(CourtDetailResponse.PricingRuleItem::startMinute)).toList());
+    private List<Court> activeCourts(UUID venueId) {
+        return courts.findByVenueIdOrderByCode(venueId).stream().filter(c -> c.getStatus() == CourtStatus.ACTIVE)
+                .sorted(COURT_ORDER).toList();
     }
 }

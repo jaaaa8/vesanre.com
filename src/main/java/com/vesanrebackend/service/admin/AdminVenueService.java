@@ -6,11 +6,10 @@ import com.vesanrebackend.dto.admin.PageResponse;
 import com.vesanrebackend.dto.provider.VenueDetailResponse;
 import com.vesanrebackend.entity.enums.VenueStatus;
 import com.vesanrebackend.entity.venue.Venue;
-import com.vesanrebackend.repository.CourtRepository;
 import com.vesanrebackend.repository.VenueRepository;
 import com.vesanrebackend.service.mail.ReviewMailer;
-import com.vesanrebackend.service.provider.ProviderCourtService;
 import com.vesanrebackend.service.provider.ProviderVenueService;
+import com.vesanrebackend.service.provider.VenueSetupService;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -26,18 +25,16 @@ public class AdminVenueService {
     private static final String ENTITY_TYPE = "VENUE";
 
     private final VenueRepository venues;
-    private final CourtRepository courts;
     private final ProviderVenueService providerVenues;
-    private final ProviderCourtService providerCourts;
+    private final VenueSetupService setup;
     private final AdminAudit audit;
     private final ReviewMailer mailer;
 
-    public AdminVenueService(VenueRepository venues, CourtRepository courts, ProviderVenueService providerVenues,
-                             ProviderCourtService providerCourts, AdminAudit audit, ReviewMailer mailer) {
+    public AdminVenueService(VenueRepository venues, ProviderVenueService providerVenues,
+                             VenueSetupService setup, AdminAudit audit, ReviewMailer mailer) {
         this.venues = venues;
-        this.courts = courts;
         this.providerVenues = providerVenues;
-        this.providerCourts = providerCourts;
+        this.setup = setup;
         this.audit = audit;
         this.mailer = mailer;
     }
@@ -53,7 +50,7 @@ public class AdminVenueService {
     public AdminVenueDetailResponse get(UUID id) {
         Venue venue = venues.findById(id).orElseThrow(AdminVenueService::notFound);
         return new AdminVenueDetailResponse(providerVenues.toDetail(venue),
-                courts.findByVenueIdOrderByCode(id).stream().map(providerCourts::toDetail).toList());
+                setup.read(id));
     }
 
     @Transactional

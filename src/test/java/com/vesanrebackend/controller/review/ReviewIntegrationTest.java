@@ -27,7 +27,7 @@ class ReviewIntegrationTest extends BookingApiTestSupport {
 
     @Test
     void onlyOwnCompletedBookingOnce() {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         Customer c = customer();
         Customer other = customer();
         UUID confirmed = confirmedBooking(c, bc);
@@ -35,10 +35,10 @@ class ReviewIntegrationTest extends BookingApiTestSupport {
         UUID done = completedBooking(c, bc);
         assertThat(review(other, done, 5).getStatusCode().value()).isEqualTo(404);
         assertThat(review(c, UUID.randomUUID(), 5).getStatusCode().value()).isEqualTo(404);
-        ResponseEntity<Map> ok = review(c, done, 4, "Sân đẹp");
+        ResponseEntity<Map> ok = review(c, done, 4, "Sân đẹp, nhân viên thân thiện");
         assertThat(ok.getStatusCode().value()).isEqualTo(201);
         assertThat(ok.getBody().get("rating")).isEqualTo(4);
-        assertThat(ok.getBody().get("comment")).isEqualTo("Sân đẹp");
+        assertThat(ok.getBody().get("comment")).isEqualTo("Sân đẹp, nhân viên thân thiện");
         assertThat(ok.getBody().get("customerName")).isEqualTo("IT Customer");
         assertThat(ok.getBody().get("status")).isEqualTo("PUBLISHED");
         assertThat(review(c, done, 5).getStatusCode().value()).isEqualTo(409);
@@ -49,7 +49,7 @@ class ReviewIntegrationTest extends BookingApiTestSupport {
 
     @Test
     void notifiesShopOwner() {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         Customer c = customer();
         UUID done = completedBooking(c, bc);
         assertThat(review(c, done, 5, "Sân sạch " + "x".repeat(200)).getStatusCode().value()).isEqualTo(201);
@@ -65,17 +65,17 @@ class ReviewIntegrationTest extends BookingApiTestSupport {
 
     @Test
     void validatesInput() {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         Customer c = customer();
         UUID done = completedBooking(c, bc);
         assertThat(review(c, done, 0).getStatusCode().value()).isEqualTo(400);
         assertThat(review(c, done, 6).getStatusCode().value()).isEqualTo(400);
         assertThat(review(c, done, null, null).getStatusCode().value()).isEqualTo(400);
-        assertThat(review(c, done, 5, "x".repeat(1001)).getStatusCode().value()).isEqualTo(400);
-        assertThat(review(c, done, 5, "x".repeat(1000)).getStatusCode().value()).isEqualTo(201);
+        assertThat(review(c, done, 5, "xy".repeat(251)).getStatusCode().value()).isEqualTo(400);
+        assertThat(review(c, done, 5, "xy".repeat(250)).getStatusCode().value()).isEqualTo(201);
     }
 
-    private UUID reviewed(BookableCourt bc, int rating) {
+    private UUID reviewed(BookableVenue bc, int rating) {
         Customer c = customer();
         ResponseEntity<Map> r = review(c, completedBooking(c, bc), rating);
         assertThat(r.getStatusCode().value()).isEqualTo(201);
@@ -92,7 +92,7 @@ class ReviewIntegrationTest extends BookingApiTestSupport {
 
     @Test
     void publicListAndRatingAverage() {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         String venue = "/api/catalog/venues/" + bc.venueId();
         Map detail = get(client(), venue, null).getBody();
         assertThat(detail.get("ratingAverage")).isNull();
@@ -120,8 +120,8 @@ class ReviewIntegrationTest extends BookingApiTestSupport {
 
     @Test
     void providerRepliesOnceOwnShopOnly() {
-        BookableCourt bc = bookableCourt();
-        BookableCourt other = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
+        BookableVenue other = bookableVenue(1, 30);
         UUID r = reviewed(bc, 3);
         assertThat(reply(other.provider().token(), r, "Hi").getStatusCode().value()).isEqualTo(404);
         assertThat(items(get(client(), "/api/provider/reviews?size=100", other.provider().token())))
@@ -146,14 +146,14 @@ class ReviewIntegrationTest extends BookingApiTestSupport {
                 .isEqualTo(403);
     }
 
-    private BigDecimal ratingAverage(BookableCourt bc) {
+    private BigDecimal ratingAverage(BookableVenue bc) {
         Object avg = get(client(), "/api/catalog/venues/" + bc.venueId(), null).getBody().get("ratingAverage");
         return avg == null ? null : new BigDecimal(avg.toString());
     }
 
     @Test
     void hideRemovesFromPublicAndAverage() {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         Admin admin = admin();
         UUID five = reviewed(bc, 5);
         Customer c = customer();
@@ -195,7 +195,7 @@ class ReviewIntegrationTest extends BookingApiTestSupport {
 
     @Test
     void nonAdminForbidden() {
-        BookableCourt bc = bookableCourt();
+        BookableVenue bc = bookableVenue(1, 30);
         UUID r = reviewed(bc, 4);
         assertThat(post(client(), "/api/admin/reviews/" + r + "/hide", Map.of("reason", "x"), bc.provider().token())
                 .getStatusCode().value()).isEqualTo(403);

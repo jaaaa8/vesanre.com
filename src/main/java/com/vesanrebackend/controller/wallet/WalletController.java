@@ -5,10 +5,15 @@ import com.vesanrebackend.dto.coin.CoinEntryItem;
 import com.vesanrebackend.dto.coin.CreateTopUpRequest;
 import com.vesanrebackend.dto.coin.TopUpView;
 import com.vesanrebackend.dto.coin.WalletView;
+import com.vesanrebackend.entity.coin.CoinTopUp;
+import com.vesanrebackend.entity.enums.CoinTopUpStatus;
+import com.vesanrebackend.repository.CoinTopUpRepository;
 import com.vesanrebackend.service.coin.CoinWalletService;
+import com.vesanrebackend.service.payment.FakeTopUpGateway;
 import com.vesanrebackend.service.coin.TopUpService;
 import com.vesanrebackend.util.Paging;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -21,7 +26,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.util.UUID;
 
 @RestController
@@ -30,9 +38,17 @@ public class WalletController {
     private final CoinWalletService wallets;
     private final TopUpService topUps;
 
-    public WalletController(CoinWalletService wallets, TopUpService topUps) {
+    private final CoinTopUpRepository topUpRepo;
+    private final ObjectProvider<FakeTopUpGateway> fakeGateway;
+    private final Clock clock;
+
+    public WalletController(CoinWalletService wallets, TopUpService topUps, CoinTopUpRepository topUpRepo,
+                            ObjectProvider<FakeTopUpGateway> fakeGateway, Clock clock) {
         this.wallets = wallets;
         this.topUps = topUps;
+        this.topUpRepo = topUpRepo;
+        this.fakeGateway = fakeGateway;
+        this.clock = clock;
     }
 
     @GetMapping
@@ -52,6 +68,25 @@ public class WalletController {
     @ResponseStatus(HttpStatus.CREATED)
     public TopUpView createTopUp(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody CreateTopUpRequest request) {
         return topUps.create(UUID.fromString(jwt.getSubject()), request.coins());
+    }
+
+    /** Dev-only "I paid" button: runs the same signed path as a real webhook. */
+    @PostMapping("/top-ups/{id}/simulate-paid")
+    public TopUpView simulatePaid(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
+        FakeTopUpGateway gateway = fakeGateway.getIfAvailable();
+        UUID userId = UUID.fromString(jwt.getSubject());
+        CoinTopUp t = topUpRepo.findByIdAndWalletUserId(id, userId).orElse(null);
+        if (gateway == null || t == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, gateway == null ? "Not found" : "Top-up not found");
+        }
+        if (t.getStatus() != CoinTopUpStatus.PAID) {
+            if (!clock.instant().isBefore(t.getExpiresAt())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Top-up expired");
+            }
+            FakeTopUpGateway.SignedEvent e = gateway.signedPaidEvent(t);
+            topUps.receive(gateway.code(), e.body().getBytes(StandardCharsets.UTF_8), e.headers());
+        }
+        return topUps.get(userId, id);
     }
 
     @GetMapping("/top-ups/{id}")

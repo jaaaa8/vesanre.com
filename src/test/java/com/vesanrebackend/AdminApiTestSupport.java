@@ -49,7 +49,7 @@ public abstract class AdminApiTestSupport {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String email = "catalog-" + suffix + "@example.com";
         UUID userId = UUID.fromString((String) post(client, "/api/auth/register", Map.of("email", email,
-                "password", "correct-password", "displayName", "IT Catalog " + suffix)).getBody().get("id"));
+                "password", "correct-password1", "displayName", "IT Catalog")).getBody().get("id"));
         String applyToken = login(client, email);
         assertThat(post(client, "/api/profile/provider-application", Map.of("legalName", "Catalog " + suffix), applyToken)
                 .getStatusCode().value()).isEqualTo(201);
@@ -63,7 +63,7 @@ public abstract class AdminApiTestSupport {
         RestClient client = client();
         String email = "admin-" + UUID.randomUUID().toString().substring(0, 8) + "@example.com";
         UUID id = UUID.fromString((String) post(client, "/api/auth/register", Map.of("email", email,
-                "password", "correct-password", "displayName", "IT Admin")).getBody().get("id"));
+                "password", "correct-password1", "displayName", "IT Admin")).getBody().get("id"));
         jdbc.update("INSERT INTO sporthub.user_roles (user_id, role_code) VALUES (?, 'ADMIN')", id); // roles read at login
         return new Admin(id, login(client, email));
     }
@@ -72,9 +72,8 @@ public abstract class AdminApiTestSupport {
     protected UUID pendingVenue(String token, String name) {
         RestClient client = client();
         String venueId = (String) post(client, "/api/provider/venues", venueBody(name), token).getBody().get("id");
-        assertThat(post(client, "/api/provider/venues/" + venueId + "/courts", Map.of("code", "C1", "name", "Court 1",
-                "capacity", 4, "bookingStepMinutes", 30, "minBookingMinutes", 60, "maxBookingMinutes", 120), token)
-                .getStatusCode().value()).isEqualTo(201);
+        assertThat(put(client, "/api/provider/venues/" + venueId + "/setup", setupBody(1, 30), token)
+                .getStatusCode().value()).isEqualTo(200);
         assertThat(post(client, "/api/provider/venues/" + venueId + "/submit", Map.of(), token).getStatusCode().value())
                 .isEqualTo(200);
         return UUID.fromString(venueId);
@@ -130,6 +129,18 @@ public abstract class AdminApiTestSupport {
                 "latitude", 10.5, "longitude", 106.7);
     }
 
+    /** Default venue setup: BADMINTON, open 06:00-22:00 all week, 100000/h all day. */
+    protected Map<String, Object> setupBody(int courtCount, int depositPercent) {
+        List<Map<String, Object>> hours = new ArrayList<>();
+        List<Map<String, Object>> rules = new ArrayList<>();
+        for (int weekday = 0; weekday < 7; weekday++) {
+            hours.add(Map.of("weekday", weekday, "closed", false, "opensAt", "06:00", "closesAt", "22:00"));
+            rules.add(Map.of("weekday", weekday, "startMinute", 0, "endMinute", 1440, "pricePerHour", 100000));
+        }
+        return Map.of("sportCode", "BADMINTON", "courtCount", courtCount, "depositPercent", depositPercent,
+                "operatingHours", hours, "pricingRules", rules);
+    }
+
     protected RestClient client() {
         return RestClient.builder()
                 .baseUrl("http://localhost:" + port)
@@ -138,7 +149,7 @@ public abstract class AdminApiTestSupport {
     }
 
     protected String login(RestClient client, String email) {
-        return (String) post(client, "/api/auth/login", Map.of("email", email, "password", "correct-password"))
+        return (String) post(client, "/api/auth/login", Map.of("email", email, "password", "correct-password1"))
                 .getBody().get("accessToken");
     }
 

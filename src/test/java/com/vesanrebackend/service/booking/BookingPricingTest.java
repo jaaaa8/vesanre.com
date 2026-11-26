@@ -7,7 +7,6 @@ import com.vesanrebackend.entity.court.CourtPricingRule;
 import com.vesanrebackend.service.booking.BookingPricing.Quote;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -110,14 +109,26 @@ class BookingPricingTest {
         assertNotBookable(slots, LocalTime.of(23, 0), LocalTime.MIDNIGHT);
     }
 
-    // Kiểm tra: depositPercent chỉ nhận số nguyên 1-100, còn lại về 30.
+    // Kiểm tra: cọc 0% cho quote hợp lệ với deposit 0 coin.
     @Test
-    void depositPercentFallsBackTo30() {
-        var json = JsonMapper.builder().build();
-        for (String bad : new String[]{null, "nope", "{}", "{\"depositPercent\":\"50\"}", "{\"depositPercent\":0}",
-                "{\"depositPercent\":101}", "{\"depositPercent\":12.5}"}) {
-            assertThat(BookingPricing.depositPercent(bad, json)).as(String.valueOf(bad)).isEqualTo(30);
-        }
-        assertThat(BookingPricing.depositPercent("{\"depositPercent\":50}", json)).isEqualTo(50);
+    void zeroPercentGivesZeroDeposit() {
+        List<Slot> slots = List.of(
+                new Slot(LocalTime.of(8, 0), LocalTime.of(9, 0), true, new BigDecimal("100000")),
+                new Slot(LocalTime.of(9, 0), LocalTime.of(10, 0), true, new BigDecimal("100000")));
+        Quote q = BookingPricing.quote(slots, LocalTime.of(8, 0), LocalTime.of(10, 0), 0);
+        assertThat(q.depositCoins()).isZero();
+        assertThat(q.depositAmount().compareTo(BigDecimal.ZERO)).isZero();
+        assertThat(q.subtotal()).isEqualByComparingTo("200000");
+    }
+
+    // Kiểm tra: % dương nhưng làm tròn xuống 0 coin vẫn bị từ chối.
+    @Test
+    void positivePercentRoundingToZeroStillFails() {
+        List<Slot> slots = List.of(new Slot(LocalTime.of(8, 0), LocalTime.of(9, 0), true, new BigDecimal("1000")));
+        assertThatThrownBy(() -> BookingPricing.quote(slots, LocalTime.of(8, 0), LocalTime.of(9, 0), 1))
+                .isInstanceOfSatisfying(ResponseStatusException.class, e -> {
+                    assertThat(e.getStatusCode().value()).isEqualTo(400);
+                    assertThat(e.getReason()).isEqualTo("Deposit is too small");
+                });
     }
 }

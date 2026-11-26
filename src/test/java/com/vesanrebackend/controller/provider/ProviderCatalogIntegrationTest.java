@@ -137,18 +137,18 @@ class ProviderCatalogIntegrationTest extends AdminApiTestSupport {
         // Spec #1: submit without an ACTIVE court -> 409; with one -> PENDING_REVIEW, then no re-submit / no delete.
         assertThat(post(client, "/api/provider/venues/" + id + "/submit", Map.of(), token).getStatusCode().value()).isEqualTo(409);
         jdbc.update("INSERT INTO sporthub.courts (id, venue_id, code, name, capacity, booking_step_minutes, min_booking_minutes, max_booking_minutes)"
-                + " VALUES (gen_random_uuid(), ?, 'C1', 'Court 1', 4, 30, 60, 120)", UUID.fromString(id));
+                + " VALUES (gen_random_uuid(), ?, 'C1', 'Court 1', 4, 60, 60, 120)", UUID.fromString(id));
         ResponseEntity<Map> submitted = post(client, "/api/provider/venues/" + id + "/submit", Map.of(), token);
         assertThat(submitted.getStatusCode().value()).isEqualTo(200);
         assertThat(submitted.getBody()).containsEntry("status", "PENDING_REVIEW");
-        assertThat((List) submitted.getBody().get("courts")).hasSize(1);
+        assertThat(submitted.getBody()).doesNotContainKey("courts");
         assertThat(post(client, "/api/provider/venues/" + id + "/submit", Map.of(), token).getStatusCode().value()).isEqualTo(409);
         assertThat(delete(client, "/api/provider/venues/" + id, token).getStatusCode().value()).isEqualTo(409);
 
         // DRAFT venue with a court: DELETE -> 204 (courts removed first), then 404.
         String draft = (String) post(client, "/api/provider/venues", venueBody("San B"), token).getBody().get("id");
         jdbc.update("INSERT INTO sporthub.courts (id, venue_id, code, name, capacity, booking_step_minutes, min_booking_minutes, max_booking_minutes)"
-                + " VALUES (gen_random_uuid(), ?, 'C1', 'Court 1', 4, 30, 60, 120)", UUID.fromString(draft));
+                + " VALUES (gen_random_uuid(), ?, 'C1', 'Court 1', 4, 60, 60, 120)", UUID.fromString(draft));
         assertThat(delete(client, "/api/provider/venues/" + draft, token).getStatusCode().value()).isEqualTo(204);
         assertThat(get(client, "/api/provider/venues/" + draft, token).getStatusCode().value()).isEqualTo(404);
     }
@@ -265,205 +265,29 @@ class ProviderCatalogIntegrationTest extends AdminApiTestSupport {
         assertThat(post(client, path + "/change-request", Map.of("name", "z"), other).getStatusCode().value()).isEqualTo(404);
     }
 
-    // API: POST /api/provider/venues/{venueId}/courts, GET/PATCH /api/provider/courts/{id}, GET /api/provider/venues/{venueId}
-    // Kiểm tra: Tạo sân ACTIVE (chuẩn hóa code), mã trùng cùng venue 409; validation capacity/step/min/max 400; PATCH kiểm tra lại giá trị kết hợp; provider khác tạo/đọc/sửa đều 404.
-    @Test
-    void courtCreateGetPatchAndOwnership() {
-        RestClient client = client();
-        String token = verifiedProvider().token();
-        String other = verifiedProvider().token();
-        String venueId = (String) post(client, "/api/provider/venues", venueBody("San E"), token).getBody().get("id");
-        String courts = "/api/provider/venues/" + venueId + "/courts";
-        Map<String, Object> body = Map.of("code", " C1 ", "name", "Court 1", "capacity", 4,
-                "bookingStepMinutes", 30, "minBookingMinutes", 60, "maxBookingMinutes", 120);
-
-        ResponseEntity<Map> created = post(client, courts, body, token);
-        assertThat(created.getStatusCode().value()).isEqualTo(201);
-        assertThat(created.getBody()).containsEntry("code", "C1").containsEntry("status", "ACTIVE")
-                .containsEntry("venueId", venueId);
-        String id = (String) created.getBody().get("id");
-        String path = "/api/provider/courts/" + id;
-
-        // GET returns the full shape; child lists are empty until the PUT endpoints fill them.
-        Map detail = get(client, path, token).getBody();
-        assertThat(detail).containsEntry("capacity", 4);
-        for (String list : List.of("sports", "amenities", "operatingHours", "pricingRules")) {
-            assertThat((List) detail.get(list)).isEmpty();
-        }
-        assertThat((List) get(client, "/api/provider/venues/" + venueId, token).getBody().get("courts")).hasSize(1);
-
-        // Duplicate code in the same venue -> 409; same code in another venue is fine.
-        assertThat(post(client, courts, body, token).getStatusCode().value()).isEqualTo(409);
-        String venue2 = (String) post(client, "/api/provider/venues", venueBody("San F"), token).getBody().get("id");
-        assertThat(post(client, "/api/provider/venues/" + venue2 + "/courts", body, token).getStatusCode().value()).isEqualTo(201);
-
-        // Validation: min not a multiple of step, min > max, capacity 0, blank code -> 400.
-        for (Map<String, Object> bad : List.<Map<String, Object>>of(
-                merge(body, "code", "C2", "minBookingMinutes", 45),
-                merge(body, "code", "C2", "minBookingMinutes", 150),
-                merge(body, "code", "C2", "capacity", 0),
-                merge(body, "code", "  "))) {
-            assertThat(post(client, courts, bad, token).getStatusCode().value()).isEqualTo(400);
-        }
-
-        // PATCH: status, free fields; merged values re-validated (max 120 vs new step 50 -> 400, no 500).
-        ResponseEntity<Map> inactive = patch(client, path, Map.of("status", "INACTIVE", "name", "Court A"), token);
-        assertThat(inactive.getStatusCode().value()).isEqualTo(200);
-        assertThat(inactive.getBody()).containsEntry("status", "INACTIVE").containsEntry("name", "Court A");
-        assertThat(patch(client, path, Map.of("status", "DELETED"), token).getStatusCode().value()).isEqualTo(400);
-        assertThat(patch(client, path, Map.of("bookingStepMinutes", 50), token).getStatusCode().value()).isEqualTo(400);
-        assertThat(patch(client, path, Map.of("maxBookingMinutes", 30), token).getStatusCode().value()).isEqualTo(400);
-        assertThat(patch(client, path, Map.of("minBookingMinutes", 120, "maxBookingMinutes", 240), token)
-                .getStatusCode().value()).isEqualTo(200);
-        assertThat(get(client, path, token).getBody()).containsEntry("minBookingMinutes", 120)
-                .containsEntry("maxBookingMinutes", 240).containsEntry("status", "INACTIVE");
-
-        // Another provider: 404 on create / GET / PATCH.
-        assertThat(post(client, courts, merge(body, "code", "C9"), other).getStatusCode().value()).isEqualTo(404);
-        assertThat(get(client, path, other).getStatusCode().value()).isEqualTo(404);
-        assertThat(patch(client, path, Map.of("name", "x"), other).getStatusCode().value()).isEqualTo(404);
-    }
-
-    // API: PUT /api/provider/courts/{id}/sports|amenities|operating-hours|pricing-rules, GET /api/provider/courts/{id}
-    // Kiểm tra: Mỗi nhóm thay toàn bộ, lặp lại được, response/GET trả dữ liệu mới và không ghi đè nhóm khác; kiểm tra 1 primary sport, scope tiện ích, đủ 7 ngày giờ mở, giá không chồng lấn/khoảng hợp lệ (sai trả 400); provider khác 404.
-    @Test
-    void courtReplaceAllPutsReturnNewDataAndAreRepeatable() {
-        RestClient client = client();
-        String token = verifiedProvider().token();
-        String other = verifiedProvider().token();
-        String venueId = (String) post(client, "/api/provider/venues", venueBody("San G"), token).getBody().get("id");
-        String id = (String) post(client, "/api/provider/venues/" + venueId + "/courts", Map.of("code", "C1", "name", "Court 1",
-                "capacity", 4, "bookingStepMinutes", 30, "minBookingMinutes", 60, "maxBookingMinutes", 120), token)
-                .getBody().get("id");
-        String path = "/api/provider/courts/" + id;
-
-        // Sports: empty / duplicate / 0 or 2 primary / unknown / null element -> 400; replace twice, response is fresh.
-        Map<String, Object> badminton = Map.of("sportId", sportId("BADMINTON").toString(), "primary", true);
-        Map<String, Object> tennis = Map.of("sportId", sportId("TENNIS").toString(), "primary", false);
-        assertThat(put(client, path + "/sports", List.of(), token).getStatusCode().value()).isEqualTo(400);
-        assertThat(put(client, path + "/sports", List.of(badminton, badminton), token).getStatusCode().value()).isEqualTo(400);
-        assertThat(put(client, path + "/sports", List.of(tennis), token).getStatusCode().value()).isEqualTo(400);
-        assertThat(put(client, path + "/sports", List.of(badminton, merge(tennis, "primary", true)), token)
-                .getStatusCode().value()).isEqualTo(400);
-        assertThat(put(client, path + "/sports", List.of(Map.of("sportId", UUID.randomUUID().toString(), "primary", true)), token)
-                .getStatusCode().value()).isEqualTo(400);
-        assertThat(put(client, path + "/sports", java.util.Arrays.asList((Object) null), token).getStatusCode().value()).isEqualTo(400);
-        assertThat(put(client, path + "/sports", List.of(badminton, tennis), token).getStatusCode().value()).isEqualTo(200);
-        ResponseEntity<Map> sports = put(client, path + "/sports", List.of(merge(tennis, "primary", true)), token);
-        assertThat(sports.getStatusCode().value()).isEqualTo(200);
-        assertThat((List<Map>) sports.getBody().get("sports")).hasSize(1).first()
-                .satisfies(s -> assertThat(s).containsEntry("code", "TENNIS").containsEntry("primary", true));
-        assertThat((List) get(client, path, token).getBody().get("sports")).hasSize(1);
-
-        // Amenities: VENUE-scope (PARKING) -> 400 (Review Focus #4); COURT and BOTH ok; unknown/duplicate 400; replace twice.
-        assertThat(put(client, path + "/amenities", List.of(Map.of("amenityId", amenityId("PARKING").toString())), token)
-                .getStatusCode().value()).isEqualTo(400);
-        Map<String, Object> lighting = Map.of("amenityId", amenityId("LIGHTING").toString(), "details", "LED");
-        assertThat(put(client, path + "/amenities", List.of(Map.of("amenityId", UUID.randomUUID().toString())), token)
-                .getStatusCode().value()).isEqualTo(400);
-        assertThat(put(client, path + "/amenities", List.of(lighting, lighting), token).getStatusCode().value()).isEqualTo(400);
-        assertThat(put(client, path + "/amenities", java.util.Arrays.asList((Object) null), token).getStatusCode().value()).isEqualTo(400);
-        assertThat(put(client, path + "/amenities", List.of(lighting, Map.of("amenityId", amenityId("EQUIPMENT_RENTAL").toString())), token)
-                .getStatusCode().value()).isEqualTo(200);
-        ResponseEntity<Map> amenities = put(client, path + "/amenities", List.of(lighting), token);
-        assertThat(amenities.getStatusCode().value()).isEqualTo(200);
-        assertThat((List<Map>) amenities.getBody().get("amenities")).hasSize(1).first()
-                .satisfies(a -> assertThat(a).containsEntry("code", "LIGHTING").containsEntry("details", "LED"));
-        assertThat((List) get(client, path, token).getBody().get("amenities")).hasSize(1);
-
-        // Operating hours: needs 7 distinct weekdays; closed => no times, else opens < closes.
-        assertThat(put(client, path + "/operating-hours", hours(6, "06:00", "22:00"), token).getStatusCode().value()).isEqualTo(400);
-        List<Map<String, Object>> dupDay = new java.util.ArrayList<>(hours(7, "06:00", "22:00"));
-        dupDay.set(6, dupDay.get(0));
-        assertThat(put(client, path + "/operating-hours", dupDay, token).getStatusCode().value()).isEqualTo(400);
-        assertThat(put(client, path + "/operating-hours", hours(7, "22:00", "06:00"), token).getStatusCode().value()).isEqualTo(400);
-        List<Map<String, Object>> closedWithTimes = new java.util.ArrayList<>(hours(7, "06:00", "22:00"));
-        closedWithTimes.set(6, Map.of("weekday", 6, "opensAt", "06:00", "closesAt", "22:00", "closed", true));
-        assertThat(put(client, path + "/operating-hours", closedWithTimes, token).getStatusCode().value()).isEqualTo(400);
-        List<Map<String, Object>> valid = new java.util.ArrayList<>(hours(7, "06:00", "22:00"));
-        valid.set(6, Map.of("weekday", 6, "closed", true));
-        assertThat(put(client, path + "/operating-hours", valid, token).getStatusCode().value()).isEqualTo(200);
-        valid.set(0, Map.of("weekday", 0, "opensAt", "07:00", "closesAt", "21:00", "closed", false));
-        ResponseEntity<Map> hoursResp = put(client, path + "/operating-hours", valid, token);
-        assertThat(hoursResp.getStatusCode().value()).isEqualTo(200);
-        List<Map> hourItems = (List<Map>) hoursResp.getBody().get("operatingHours");
-        assertThat(hourItems).hasSize(7);
-        assertThat(hourItems.get(0)).containsEntry("opensAt", "07:00:00").containsEntry("closed", false);
-        assertThat(hourItems.get(6)).containsEntry("closed", true).containsEntry("opensAt", null);
-
-        // Pricing: overlap in one request -> 400; start >= end / > 1440 / price <= 0 -> 400; touching ranges are fine.
-        assertThat(put(client, path + "/pricing-rules", List.of(rule(0, 0, 600, 100000), rule(0, 599, 1440, 150000)), token)
-                .getStatusCode().value()).isEqualTo(400);
-        assertThat(put(client, path + "/pricing-rules", List.of(rule(0, 600, 600, 100000)), token).getStatusCode().value()).isEqualTo(400);
-        assertThat(put(client, path + "/pricing-rules", List.of(rule(0, 0, 1441, 100000)), token).getStatusCode().value()).isEqualTo(400);
-        assertThat(put(client, path + "/pricing-rules", List.of(rule(0, 0, 600, 0)), token).getStatusCode().value()).isEqualTo(400);
-        assertThat(put(client, path + "/pricing-rules", java.util.Arrays.asList((Object) null), token).getStatusCode().value()).isEqualTo(400);
-        List<Map<String, Object>> rules = List.of(rule(0, 0, 600, 100000), rule(0, 600, 1440, 150000), rule(1, 0, 1440, 120000));
-        // Review focus #3: same payload twice -> both 200.
-        assertThat(put(client, path + "/pricing-rules", rules, token).getStatusCode().value()).isEqualTo(200);
-        ResponseEntity<Map> pricing = put(client, path + "/pricing-rules", rules, token);
-        assertThat(pricing.getStatusCode().value()).isEqualTo(200);
-        assertThat((List<Map>) pricing.getBody().get("pricingRules")).hasSize(3).first()
-                .satisfies(r -> assertThat(r).containsEntry("currency", "VND").containsEntry("startMinute", 0));
-        // New data (not the previous rows) in the response and in a follow-up GET.
-        ResponseEntity<Map> replaced = put(client, path + "/pricing-rules", List.of(rule(2, 60, 120, 99000)), token);
-        assertThat((List<Map>) replaced.getBody().get("pricingRules")).hasSize(1).first()
-                .satisfies(r -> assertThat(r).containsEntry("weekday", 2).containsEntry("startMinute", 60));
-        assertThat((List<Map>) get(client, path, token).getBody().get("pricingRules")).hasSize(1);
-        assertThat((List) put(client, path + "/pricing-rules", List.of(), token).getBody().get("pricingRules")).isEmpty();
-        // The earlier PUTs were not clobbered by the later ones.
-        Map detail = get(client, path, token).getBody();
-        assertThat((List) detail.get("sports")).hasSize(1);
-        assertThat((List) detail.get("operatingHours")).hasSize(7);
-
-        // Another provider -> 404 on every PUT.
-        assertThat(put(client, path + "/sports", List.of(badminton), other).getStatusCode().value()).isEqualTo(404);
-        assertThat(put(client, path + "/amenities", List.of(), other).getStatusCode().value()).isEqualTo(404);
-        assertThat(put(client, path + "/operating-hours", valid, other).getStatusCode().value()).isEqualTo(404);
-        assertThat(put(client, path + "/pricing-rules", rules, other).getStatusCode().value()).isEqualTo(404);
-    }
-
-    // Spec #1 end to end through the real APIs: venue -> court -> hours -> prices -> sports -> submit.
+    // Spec #1 end to end through the real APIs: venue -> setup -> submit.
     // API: POST /api/provider/venues, POST .../{venueId}/courts, PUT .../courts/{id}/operating-hours|pricing-rules|sports, POST .../venues/{venueId}/submit
     // Kiểm tra: Luồng end-to-end: submit khi chưa có sân 409; sau khi có sân + giờ + giá + môn thì submit trả 200, PENDING_REVIEW.
     @Test
-    void venueCourtHoursPricingSportsThenSubmitPendingReview() {
+    void venueSetupThenSubmitPendingReview() {
         RestClient client = client();
         String token = verifiedProvider().token();
         String venueId = (String) post(client, "/api/provider/venues", venueBody("San H"), token).getBody().get("id");
         String submit = "/api/provider/venues/" + venueId + "/submit";
         assertThat(post(client, submit, Map.of(), token).getStatusCode().value()).isEqualTo(409); // no court yet
-        String courtId = (String) post(client, "/api/provider/venues/" + venueId + "/courts", Map.of("code", "C1", "name", "Court 1",
-                "capacity", 4, "bookingStepMinutes", 30, "minBookingMinutes", 60, "maxBookingMinutes", 120), token)
-                .getBody().get("id");
-        String court = "/api/provider/courts/" + courtId;
-        assertThat(put(client, court + "/operating-hours", hours(7, "06:00", "22:00"), token).getStatusCode().value()).isEqualTo(200);
-        assertThat(put(client, court + "/pricing-rules", List.of(rule(0, 0, 1440, 100000)), token).getStatusCode().value()).isEqualTo(200);
-        assertThat(put(client, court + "/sports", List.of(Map.of("sportId", sportId("BADMINTON").toString(), "primary", true)), token)
-                .getStatusCode().value()).isEqualTo(200);
+        assertThat(put(client, "/api/provider/venues/" + venueId + "/setup", setup(), token).getStatusCode().value()).isEqualTo(200);
         ResponseEntity<Map> submitted = post(client, submit, Map.of(), token);
         assertThat(submitted.getStatusCode().value()).isEqualTo(200);
         assertThat(submitted.getBody()).containsEntry("status", "PENDING_REVIEW");
     }
 
-    private static List<Map<String, Object>> hours(int days, String opens, String closes) {
-        List<Map<String, Object>> out = new java.util.ArrayList<>();
-        for (int d = 0; d < days; d++) {
-            out.add(Map.of("weekday", d, "opensAt", opens, "closesAt", closes, "closed", false));
+    private Map<String, Object> setup() {
+        List<Map<String, Object>> hours = new java.util.ArrayList<>();
+        for (int d = 0; d < 7; d++) {
+            hours.add(Map.of("weekday", d, "opensAt", "06:00", "closesAt", "22:00", "closed", false));
         }
-        return out;
-    }
-
-    private static Map<String, Object> rule(int weekday, int start, int end, int price) {
-        return Map.of("weekday", weekday, "startMinute", start, "endMinute", end, "pricePerHour", price);
-    }
-
-    private static Map<String, Object> merge(Map<String, Object> base, Object... overrides) {
-        Map<String, Object> out = new java.util.HashMap<>(base);
-        for (int i = 0; i < overrides.length; i += 2) {
-            out.put((String) overrides[i], overrides[i + 1]);
-        }
-        return out;
+        return Map.of("sportCode", "BADMINTON", "courtCount", 1, "depositPercent", 30, "operatingHours", hours,
+                "pricingRules", List.of(Map.of("weekday", 0, "startMinute", 0, "endMinute", 1440, "pricePerHour", 100000)));
     }
 
     static final byte[] JPEG = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0};
@@ -554,29 +378,6 @@ class ProviderCatalogIntegrationTest extends AdminApiTestSupport {
         assertThat((List) get(client, "/api/provider/venues/" + venueId, token).getBody().get("images")).isEmpty();
     }
 
-    // API: POST/PUT /api/provider/courts/{id}/images, DELETE .../images/{imageId}, GET /api/provider/courts/{id}
-    // Kiểm tra: Upload vào đúng thư mục sân, reorder, xóa, cover còn lại đúng; provider khác upload 404.
-    @Test
-    void courtImagesUploadReorderDelete() {
-        RestClient client = client();
-        String token = verifiedProvider().token();
-        String venueId = (String) post(client, "/api/provider/venues", venueBody("San Img3"), token).getBody().get("id");
-        String courtId = (String) post(client, "/api/provider/venues/" + venueId + "/courts", Map.of("code", "C1", "name", "Court 1",
-                "capacity", 4, "bookingStepMinutes", 30, "minBookingMinutes", 60, "maxBookingMinutes", 120), token).getBody().get("id");
-        String path = "/api/provider/courts/" + courtId + "/images";
-
-        ResponseEntity<Map> first = upload(client, HttpMethod.POST, path, null, token);
-        assertThat(first.getStatusCode().value()).isEqualTo(201);
-        assertThat((String) first.getBody().get("url")).startsWith("https://img.test/vesanre/courts/" + courtId + "/");
-        String a = (String) first.getBody().get("id");
-        String b = (String) upload(client, HttpMethod.POST, path, null, token).getBody().get("id");
-        assertThat(putList(client, path, List.of(Map.of("id", b), Map.of("id", a)), token).getStatusCode().value()).isEqualTo(200);
-        assertThat(upload(client, HttpMethod.POST, path, null, verifiedProvider().token()).getStatusCode().value()).isEqualTo(404);
-        assertThat(delete(client, path + "/" + b, token).getStatusCode().value()).isEqualTo(204);
-        List<Map> images = (List<Map>) get(client, "/api/provider/courts/" + courtId, token).getBody().get("images");
-        assertThat(images).hasSize(1).first().satisfies(i -> assertThat(i).containsEntry("id", a).containsEntry("cover", true));
-    }
-
     // API: POST /api/provider/venues/{id}/images
     // Kiểm tra: Storage trả key đã tồn tại -> vi phạm unique, trả 409 và rollback; object vừa upload được xóa khỏi storage.
     @Test
@@ -649,19 +450,13 @@ class ProviderCatalogIntegrationTest extends AdminApiTestSupport {
         RestClient client = client();
         String token = verifiedProvider().token();
         String venueId = (String) post(client, "/api/provider/venues", venueBody("San Img6"), token).getBody().get("id");
-        String courtId = (String) post(client, "/api/provider/venues/" + venueId + "/courts", Map.of("code", "C1", "name", "Court 1",
-                "capacity", 4, "bookingStepMinutes", 30, "minBookingMinutes", 60, "maxBookingMinutes", 120), token).getBody().get("id");
         upload(client, HttpMethod.POST, "/api/provider/venues/" + venueId + "/images", null, token);
-        upload(client, HttpMethod.POST, "/api/provider/courts/" + courtId + "/images", null, token);
-        List<String> keys = jdbc.queryForList("SELECT storage_key FROM sporthub.venue_images WHERE venue_id = ?"
-                + " UNION ALL SELECT ci.storage_key FROM sporthub.court_images ci JOIN sporthub.courts c ON c.id = ci.court_id"
-                + " WHERE c.venue_id = ?", String.class, UUID.fromString(venueId), UUID.fromString(venueId));
-        assertThat(keys).hasSize(2);
+        List<String> keys = jdbc.queryForList("SELECT storage_key FROM sporthub.venue_images WHERE venue_id = ?",
+                String.class, UUID.fromString(venueId));
+        assertThat(keys).hasSize(1);
 
         assertThat(delete(client, "/api/provider/venues/" + venueId, token).getStatusCode().value()).isEqualTo(204);
         for (String key : keys) verify(storage, timeout(5000)).delete(key);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM sporthub.court_images WHERE storage_key IN (?, ?)",
-                Integer.class, keys.get(0), keys.get(1))).isZero();
     }
 
     String keyOfVenueImage(String imageId) {

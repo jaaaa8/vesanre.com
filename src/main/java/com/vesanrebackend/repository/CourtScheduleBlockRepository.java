@@ -10,6 +10,11 @@ import java.util.List;
 import java.util.UUID;
 
 public interface CourtScheduleBlockRepository extends JpaRepository<CourtScheduleBlock, UUID> {
+    @Query("select count(b) > 0 from CourtScheduleBlock b where b.court.id = :courtId "
+            + "and b.blockKind = com.vesanrebackend.entity.enums.ScheduleBlockKind.BOOKING "
+            + "and b.state = com.vesanrebackend.entity.enums.ScheduleBlockState.ACTIVE and b.endAt > :now")
+    boolean existsFutureBooking(@Param("courtId") UUID courtId, @Param("now") Instant now);
+
     // Half-open overlap with [from, to): a block that started the day before and runs past midnight counts.
     @Query("select b from CourtScheduleBlock b where b.court.id = :courtId "
             + "and b.state = com.vesanrebackend.entity.enums.ScheduleBlockState.ACTIVE "

@@ -7,6 +7,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.web.client.RestClient;
 
 import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -28,5 +29,7 @@ class FakeGatewayDisabledIntegrationTest extends BookingApiTestSupport {
         Customer c = customer();
         assertThat(post(client, "/api/wallet/top-ups", Map.of("coins", 100), c.token()).getStatusCode().value())
                 .isEqualTo(503);
+        assertThat(post(client, "/api/wallet/top-ups/" + UUID.randomUUID() + "/simulate-paid", Map.of(), c.token())
+                .getStatusCode().value()).isEqualTo(404);
     }
 }

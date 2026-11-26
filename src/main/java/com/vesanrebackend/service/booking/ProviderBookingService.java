@@ -10,7 +10,6 @@ import com.vesanrebackend.entity.enums.BookingStatus;
 import com.vesanrebackend.entity.enums.CancellationSource;
 import com.vesanrebackend.entity.venue.Venue;
 import com.vesanrebackend.repository.BookingRepository;
-import com.vesanrebackend.repository.CourtRepository;
 import com.vesanrebackend.repository.ReviewRepository;
 import com.vesanrebackend.repository.ShopRepository;
 import com.vesanrebackend.repository.VenueRepository;
@@ -35,19 +34,17 @@ public class ProviderBookingService {
     private final BookingRepository bookings;
     private final BookingLifecycle lifecycle;
     private final VenueRepository venues;
-    private final CourtRepository courts;
     private final ShopRepository shops;
     private final CoinWalletService wallets;
     private final ReviewRepository reviews;
     private final ObjectMapper json;
 
     public ProviderBookingService(BookingRepository bookings, BookingLifecycle lifecycle, VenueRepository venues,
-                                  CourtRepository courts, ShopRepository shops, CoinWalletService wallets,
+                                  ShopRepository shops, CoinWalletService wallets,
                                   ReviewRepository reviews, ObjectMapper json) {
         this.bookings = bookings;
         this.lifecycle = lifecycle;
         this.venues = venues;
-        this.courts = courts;
         this.shops = shops;
         this.wallets = wallets;
         this.reviews = reviews;
@@ -56,27 +53,22 @@ public class ProviderBookingService {
 
     // ponytail: N+1 on block/court/venue per row; fetch-join if a page gets slow.
     @Transactional(readOnly = true)
-    public PageResponse<BookingSummary> list(UUID userId, UUID venueId, UUID courtId, LocalDate date,
+    public PageResponse<BookingSummary> list(UUID userId, UUID venueId, LocalDate date,
                                              BookingStatus status, int page, int size) {
         Specification<Booking> spec = (r, q, cb) ->
                 cb.equal(r.get("scheduleBlock").get("court").get("venue").get("shop").get("owner").get("userId"), userId);
         if (venueId != null) {
             spec = spec.and((r, q, cb) -> cb.equal(r.get("scheduleBlock").get("court").get("venue").get("id"), venueId));
         }
-        if (courtId != null) {
-            spec = spec.and((r, q, cb) -> cb.equal(r.get("scheduleBlock").get("court").get("id"), courtId));
-        }
         if (status != null) {
             spec = spec.and((r, q, cb) -> cb.equal(r.get("status"), status));
         }
         if (date != null) {
-            if (venueId == null && courtId == null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "date filter requires venueId or courtId");
+            if (venueId == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "date filter requires venueId");
             }
             // The day is local to the venue; an unknown or foreign venue just yields an empty page.
-            String tz = venueId != null
-                    ? venues.findById(venueId).map(Venue::getTimezone).orElse("Asia/Ho_Chi_Minh")
-                    : courts.findById(courtId).map(c -> c.getVenue().getTimezone()).orElse("Asia/Ho_Chi_Minh");
+            String tz = venues.findById(venueId).map(Venue::getTimezone).orElse("Asia/Ho_Chi_Minh");
             ZoneId zone = ZoneId.of(tz);
             Instant from = date.atStartOfDay(zone).toInstant();
             Instant to = date.plusDays(1).atStartOfDay(zone).toInstant();

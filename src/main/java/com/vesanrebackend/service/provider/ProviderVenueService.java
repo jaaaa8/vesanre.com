@@ -266,9 +266,6 @@ public class ProviderVenueService {
         return new VenueDetailResponse(v.getId(), v.getSlug(), v.getName(), v.getDescription(), v.getAddressLine(),
                 v.getWard(), v.getDistrict(), v.getCity(), v.getProvince(), v.getPostalCode(), v.getLatitude(),
                 v.getLongitude(), v.getPhone(), v.getStatus().name(),
-                courts.findByVenueIdOrderByCode(v.getId()).stream()
-                        .map(c -> new VenueDetailResponse.CourtItem(c.getId(), c.getCode(), c.getName(), c.getStatus().name()))
-                        .toList(),
                 venueAmenities.findByVenueId(v.getId()).stream()
                         .map(a -> new VenueDetailResponse.AmenityItem(a.getAmenity().getId(), a.getAmenity().getCode(),
                                 a.getAmenity().getName(), a.getDetails()))
